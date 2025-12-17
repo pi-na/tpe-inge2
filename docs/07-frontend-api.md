@@ -184,17 +184,17 @@ sequenceDiagram
 ## 7.6. Vista física (frontend + API)
 
 ```mermaid
-graph LR
-  U[Usuarios/Browser] -->|HTTPS 443| LB[(Load Balancer L4)]
-  LB --> IG[Ingress Traefik (K8s)]
-  IG --> FE[Frontend NGINX (static SPA)]
-  IG --> API[DAM API (Go)]
-  API --> KC[Keycloak (OIDC)]
-  API --> DB[(PostgreSQL)]
-  API --> OS[(OpenSearch Cluster)]
-  API --> T[(Temporal Server)]
-  U -->|HTTPS PUT/GET (Presigned)| RGW[Ceph RGW S3 Endpoint]
-  RGW --> CEPH[(Ceph Cluster Pools)]
+flowchart LR
+  U["Usuarios / Browser"] -->|HTTPS 443| LB["Load Balancer L4"]
+  LB --> IG["Ingress Traefik (K8s)"]
+  IG --> FE["Frontend NGINX (Static SPA)"]
+  IG --> API["DAM API (Go)"]
+  API --> KC["Keycloak (OIDC)"]
+  API --> DB["PostgreSQL"]
+  API --> OS["OpenSearch Cluster"]
+  API --> T["Temporal Server"]
+  U -->|HTTPS PUT/GET presigned| RGW["Ceph RGW (S3 endpoint)"]
+  RGW --> CEPH["Ceph Cluster Pools"]
 ```
 
 **Notas de red**:
