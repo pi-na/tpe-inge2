@@ -16,11 +16,13 @@ La decisión de adoptar este estilo arquitectónico se fundamenta en los siguien
 **Microservicios moderados**: A diferencia de una arquitectura de microservicios pura con alta granularidad, se opta por servicios de tamaño moderado que agrupan funcionalidades cohesivas. Esto reduce la complejidad operacional sin sacrificar los beneficios de desacoplamiento y escalabilidad independiente. Por ejemplo, el Asset Service agrupa operaciones CRUD de activos, gestión de estados y coordinación con almacenamiento, evitando la fragmentación excesiva.
 
 **Event-Driven Architecture**: El patrón de eventos permite desacoplar temporalmente a los productores de los consumidores. Cuando un editor sube un archivo, el Asset Service no necesita esperar a que finalicen la transcodificación, el análisis de IA y la indexación. En cambio, emite un evento `AssetCreated` que es consumido de forma independiente por cada subsistema interesado. Este desacoplamiento es fundamental para:
+
 - Mantener tiempos de respuesta predecibles en las operaciones interactivas.
 - Permitir que los procesos pesados escalen independientemente.
 - Facilitar la incorporación de nuevos consumidores sin modificar los productores.
 
 **CQRS parcial**: Se aplica CQRS en el subsistema de búsqueda, separando el modelo de escritura (base de datos transaccional PostgreSQL) del modelo de lectura optimizado para consultas (índice OpenSearch). Esta separación permite:
+
 - Optimizar el esquema de indexación para los patrones de búsqueda editorial.
 - Escalar lecturas y escrituras de forma independiente.
 - Utilizar tecnologías especializadas para cada caso de uso.
@@ -29,14 +31,14 @@ La decisión de adoptar este estilo arquitectónico se fundamenta en los siguien
 
 La arquitectura incorpora los siguientes patrones para garantizar los atributos de calidad requeridos:
 
-| Patrón | Propósito | Aplicación en el DAM |
-|--------|-----------|---------------------|
-| API Gateway | Punto de entrada único, autenticación, rate limiting | Centraliza acceso desde UI y sistemas externos |
-| Saga / Orquestación | Coordinación de transacciones distribuidas | Workflows de procesamiento (ingesta, distribución) |
-| Outbox Pattern | Garantía de entrega de eventos | Publicación confiable de eventos desde servicios |
-| Circuit Breaker | Tolerancia a fallos en integraciones | Conectores de distribución a canales externos |
-| Retry con Backoff | Manejo de fallos transitorios | Workers de procesamiento, conectores |
-| Dead Letter Queue | Manejo de mensajes fallidos | Cola para jobs que exceden reintentos |
+| Patrón              | Propósito                                             | Aplicación en el DAM                               |
+| -------------------- | ------------------------------------------------------ | --------------------------------------------------- |
+| API Gateway          | Punto de entrada único, autenticación, rate limiting | Centraliza acceso desde UI y sistemas externos      |
+| Saga / Orquestación | Coordinación de transacciones distribuidas            | Workflows de procesamiento (ingesta, distribución) |
+| Outbox Pattern       | Garantía de entrega de eventos                        | Publicación confiable de eventos desde servicios   |
+| Circuit Breaker      | Tolerancia a fallos en integraciones                   | Conectores de distribución a canales externos      |
+| Retry con Backoff    | Manejo de fallos transitorios                          | Workers de procesamiento, conectores                |
+| Dead Letter Queue    | Manejo de mensajes fallidos                            | Cola para jobs que exceden reintentos               |
 
 ## 4.2 Vista Lógica: Componentes del Sistema
 
@@ -129,20 +131,22 @@ A continuación se describe cada componente, incluyendo la implementación elegi
 **Implementación elegida**: Kong Gateway (open source) + Backend for Frontend (BFF) en Node.js/Express.
 
 **Justificación**:
+
 - Kong provee capacidades enterprise de API management sin vendor lock-in.
 - El BFF permite optimizar las respuestas para las necesidades específicas de la UI editorial, reduciendo round-trips.
 - Node.js es eficiente para operaciones I/O-bound como agregación de llamadas a servicios.
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| Kong Gateway | Open source, plugins extensos, alta performance | Requiere configuración inicial | ✓ Elegido |
-| Nginx + Lua | Muy ligero, alto rendimiento | Menos funcionalidades out-of-the-box | Descartado |
-| Traefik | Integración nativa con containers | Menos maduro para enterprise | Descartado |
-| AWS API Gateway | Managed, fácil setup | Vendor lock-in (IaaS restriction) | Descartado |
+| Opción         | Ventajas                                        | Desventajas                          | Decisión  |
+| --------------- | ----------------------------------------------- | ------------------------------------ | ---------- |
+| Kong Gateway    | Open source, plugins extensos, alta performance | Requiere configuración inicial      | ✓ Elegido |
+| Nginx + Lua     | Muy ligero, alto rendimiento                    | Menos funcionalidades out-of-the-box | Descartado |
+| Traefik         | Integración nativa con containers              | Menos maduro para enterprise         | Descartado |
+| AWS API Gateway | Managed, fácil setup                           | Vendor lock-in (IaaS restriction)    | Descartado |
 
 **Debilidades**:
+
 - Kong requiere una base de datos PostgreSQL adicional para su configuración (modo tradicional) o sincronización entre nodos (modo DB-less).
 - El BFF introduce un punto adicional de mantenimiento.
 
@@ -157,6 +161,7 @@ A continuación se describe cada componente, incluyendo la implementación elegi
 **Implementación elegida**: Keycloak (Identity Provider) + Open Policy Agent (OPA) para políticas de autorización.
 
 **Justificación**:
+
 - Keycloak es el estándar de facto open source para Identity and Access Management (IAM).
 - Soporta OIDC/OAuth2, SAML, federación con directorios corporativos (LDAP, Active Directory).
 - OPA permite definir políticas de autorización complejas (ABAC) de forma declarativa, evaluando permisos por asset, carpeta o proyecto.
@@ -181,17 +186,19 @@ Recursos:
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| Keycloak + OPA | Open source, flexible, estándar | Complejidad de setup inicial | ✓ Elegido |
-| Auth0 | SaaS, fácil integración | Vendor lock-in, costos variables | Descartado |
-| Keycloak solo | Más simple | AuthZ limitado para ABAC complejo | Descartado |
+| Opción        | Ventajas                         | Desventajas                       | Decisión  |
+| -------------- | -------------------------------- | --------------------------------- | ---------- |
+| Keycloak + OPA | Open source, flexible, estándar | Complejidad de setup inicial      | ✓ Elegido |
+| Auth0          | SaaS, fácil integración        | Vendor lock-in, costos variables  | Descartado |
+| Keycloak solo  | Más simple                      | AuthZ limitado para ABAC complejo | Descartado |
 
 **Debilidades**:
+
 - Keycloak requiere recursos significativos (JVM-based).
 - OPA agrega latencia en cada decisión de autorización.
 
-**Mitigación**: 
+**Mitigación**:
+
 - Caching de tokens JWT y decisiones de OPA en Redis.
 - Despliegue de OPA como sidecar para minimizar latencia de red.
 
@@ -204,6 +211,7 @@ Recursos:
 **Implementación elegida**: Servicio en Go con arquitectura hexagonal.
 
 **Justificación**:
+
 - Go ofrece excelente performance, bajo consumo de memoria y compilación a binario único.
 - La arquitectura hexagonal (puertos y adaptadores) facilita testing y cambio de implementaciones de infraestructura.
 - Manejo eficiente de concurrencia mediante goroutines para operaciones de I/O con storage.
@@ -226,12 +234,14 @@ stateDiagram-v2
 ```
 
 **Funcionalidades clave**:
+
 - Upload resumable mediante protocolo tus (https://tus.io/).
 - Validación de integridad mediante checksums SHA-256.
 - Gestión de versiones de assets.
 - Soft delete con período de retención configurable.
 
 **Debilidades**:
+
 - Punto central de coordinación que puede convertirse en cuello de botella.
 
 **Mitigación**: Escalamiento horizontal stateless con load balancing. La base de datos PostgreSQL con connection pooling (PgBouncer) maneja la contención.
@@ -246,12 +256,12 @@ stateDiagram-v2
 
 **Tipos de metadatos gestionados**:
 
-| Tipo | Origen | Ejemplos |
-|------|--------|----------|
-| Técnico | Extracción automática | Codec, resolución, duración, bitrate, EXIF |
-| Descriptivo | Ingreso manual | Título, descripción, tags, categoría, derechos |
-| Enriquecido | Análisis IA | Labels, transcripción ASR, OCR, embeddings |
-| Operacional | Sistema | Fecha creación, autor, estado, historial |
+| Tipo        | Origen                  | Ejemplos                                          |
+| ----------- | ----------------------- | ------------------------------------------------- |
+| Técnico    | Extracción automática | Codec, resolución, duración, bitrate, EXIF      |
+| Descriptivo | Ingreso manual          | Título, descripción, tags, categoría, derechos |
+| Enriquecido | Análisis IA            | Labels, transcripción ASR, OCR, embeddings       |
+| Operacional | Sistema                 | Fecha creación, autor, estado, historial         |
 
 **Esquema extensible**: El servicio soporta esquemas de metadatos personalizados por tipo de asset o proyecto, permitiendo adaptar los campos requeridos según las necesidades editoriales.
 
@@ -264,6 +274,7 @@ stateDiagram-v2
 **Implementación elegida**: Ceph Object Gateway (RGW) con erasure coding.
 
 **Justificación**:
+
 - Ceph es la solución de almacenamiento distribuido open source más robusta para escala enterprise.
 - El Object Gateway expone una API S3-compatible, facilitando integración y evitando vendor lock-in.
 - Erasure coding (configuración 8+3) provee durabilidad equivalente a 3 réplicas con ~37% menos espacio.
@@ -271,12 +282,12 @@ stateDiagram-v2
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| Ceph RGW | Escala masiva, erasure coding, maduro | Complejidad operacional alta | ✓ Elegido para escala PB |
-| MinIO | Simple, rápido, S3-compatible | Menos features enterprise | Alternativa para escala menor |
-| GlusterFS | Simple clustering | No optimizado para objetos | Descartado |
-| AWS S3 | Managed, altamente durable | Vendor lock-in (IaaS restriction) | Descartado |
+| Opción   | Ventajas                              | Desventajas                       | Decisión                     |
+| --------- | ------------------------------------- | --------------------------------- | ----------------------------- |
+| Ceph RGW  | Escala masiva, erasure coding, maduro | Complejidad operacional alta      | ✓ Elegido para escala PB     |
+| MinIO     | Simple, rápido, S3-compatible        | Menos features enterprise         | Alternativa para escala menor |
+| GlusterFS | Simple clustering                     | No optimizado para objetos        | Descartado                    |
+| AWS S3    | Managed, altamente durable            | Vendor lock-in (IaaS restriction) | Descartado                    |
 
 **Configuración propuesta**:
 
@@ -302,15 +313,18 @@ lifecycle_policy:
 ```
 
 **Organización de buckets**:
+
 - `dam-masters`: Archivos originales, nunca modificados.
 - `dam-renditions`: Derivados generados (previews, thumbnails, proxies).
 - `dam-temp`: Uploads en progreso, limpieza automática.
 
 **Debilidades**:
+
 - Ceph requiere equipo especializado para operación.
 - Overhead inicial de setup significativo.
 
-**Mitigación**: 
+**Mitigación**:
+
 - Documentación operacional detallada y runbooks.
 - Contratación de soporte comercial (Red Hat Ceph Storage) si el presupuesto lo permite.
 - Para despliegues iniciales o pruebas de concepto, MinIO como alternativa más simple.
@@ -324,6 +338,7 @@ lifecycle_policy:
 **Implementación elegida**: Apache Kafka.
 
 **Justificación**:
+
 - Kafka provee un log de eventos durable y ordenado, fundamental para event sourcing parcial y auditoría.
 - Permite múltiples consumidores independientes del mismo stream (fan-out).
 - Capacidad de replay de eventos para reindexación o reprocesamiento.
@@ -332,29 +347,31 @@ lifecycle_policy:
 
 **Topics principales**:
 
-| Topic | Productores | Consumidores | Propósito |
-|-------|-------------|--------------|-----------|
-| `assets.created` | Asset Service | Workflow Orchestrator | Iniciar procesamiento |
-| `assets.enriched` | AI Workers | Indexer | Actualizar índices |
-| `assets.updated` | Asset/Metadata Service | Indexer, Distribution | Sincronizar cambios |
-| `distribution.requested` | Workflow | Distribution Service | Iniciar publicación |
-| `audit.events` | Todos los servicios | Audit Service | Trazabilidad |
+| Topic                      | Productores            | Consumidores          | Propósito            |
+| -------------------------- | ---------------------- | --------------------- | --------------------- |
+| `assets.created`         | Asset Service          | Workflow Orchestrator | Iniciar procesamiento |
+| `assets.enriched`        | AI Workers             | Indexer               | Actualizar índices   |
+| `assets.updated`         | Asset/Metadata Service | Indexer, Distribution | Sincronizar cambios   |
+| `distribution.requested` | Workflow               | Distribution Service  | Iniciar publicación  |
+| `audit.events`           | Todos los servicios    | Audit Service         | Trazabilidad          |
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| Apache Kafka | Durable, replay, alto throughput | Complejidad operacional | ✓ Elegido |
-| RabbitMQ | Simple, flexible routing | Sin replay nativo, menos throughput | Descartado |
-| Redis Streams | Muy simple, bajo overhead | Menos maduro, durabilidad limitada | Descartado |
-| NATS JetStream | Ligero, fácil operación | Ecosistema más pequeño | Alternativa válida |
+| Opción        | Ventajas                         | Desventajas                         | Decisión           |
+| -------------- | -------------------------------- | ----------------------------------- | ------------------- |
+| Apache Kafka   | Durable, replay, alto throughput | Complejidad operacional             | ✓ Elegido          |
+| RabbitMQ       | Simple, flexible routing         | Sin replay nativo, menos throughput | Descartado          |
+| Redis Streams  | Muy simple, bajo overhead        | Menos maduro, durabilidad limitada  | Descartado          |
+| NATS JetStream | Ligero, fácil operación        | Ecosistema más pequeño            | Alternativa válida |
 
 **Configuración de resiliencia**:
+
 - Replication factor: 3 (cada mensaje en 3 brokers).
 - Min in-sync replicas: 2 (garantiza durabilidad ante falla de 1 broker).
 - Retención: 7 días para topics operacionales, 90 días para auditoría.
 
 **Debilidades**:
+
 - Curva de aprendizaje para el equipo.
 - Requiere gestión de offsets y consumer groups.
 
@@ -369,6 +386,7 @@ lifecycle_policy:
 **Implementación elegida**: Temporal.io (self-hosted).
 
 **Justificación**:
+
 - Temporal es el estándar actual para orquestación de workflows durables.
 - Garantiza exactly-once semantics para actividades.
 - Manejo automático de reintentos con backoff configurable.
@@ -385,14 +403,14 @@ func AssetProcessingWorkflow(ctx workflow.Context, assetID string) error {
     if err != nil {
         return err
     }
-    
+  
     // Fase 2: Procesamiento paralelo
     futures := []workflow.Future{
         workflow.ExecuteActivity(ctx, GenerateThumbnails, assetID),
         workflow.ExecuteActivity(ctx, GeneratePreview, assetID),
         workflow.ExecuteActivity(ctx, ExtractTechnicalMetadata, assetID),
     }
-    
+  
     // Esperar todas las actividades paralelas
     for _, f := range futures {
         if err := f.Get(ctx, nil); err != nil {
@@ -400,7 +418,7 @@ func AssetProcessingWorkflow(ctx workflow.Context, assetID string) error {
             workflow.GetLogger(ctx).Warn("Activity failed", "error", err)
         }
     }
-    
+  
     // Fase 3: Enriquecimiento IA (puede ser largo)
     err = workflow.ExecuteActivity(ctx, AIEnrichment, assetID,
         workflow.WithStartToCloseTimeout(30*time.Minute),
@@ -408,28 +426,30 @@ func AssetProcessingWorkflow(ctx workflow.Context, assetID string) error {
             MaximumAttempts: 3,
         }),
     ).Get(ctx, nil)
-    
+  
     // Fase 4: Indexación
     err = workflow.ExecuteActivity(ctx, IndexAsset, assetID).Get(ctx, nil)
-    
+  
     return nil
 }
 ```
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| Temporal.io | Durable, visual, bien documentado | Requiere cluster dedicado | ✓ Elegido |
-| Apache Airflow | Maduro, gran comunidad | Orientado a batch/ETL | Descartado |
-| Jobs custom (DB+Cola) | Simple, menos componentes | Riesgo de edge cases, reinvención | Descartado |
-| Cadence | Similar a Temporal | Menos activo (Temporal es fork mejorado) | Descartado |
+| Opción               | Ventajas                          | Desventajas                              | Decisión  |
+| --------------------- | --------------------------------- | ---------------------------------------- | ---------- |
+| Temporal.io           | Durable, visual, bien documentado | Requiere cluster dedicado                | ✓ Elegido |
+| Apache Airflow        | Maduro, gran comunidad            | Orientado a batch/ETL                    | Descartado |
+| Jobs custom (DB+Cola) | Simple, menos componentes         | Riesgo de edge cases, reinvención       | Descartado |
+| Cadence               | Similar a Temporal                | Menos activo (Temporal es fork mejorado) | Descartado |
 
 **Debilidades**:
+
 - Componente adicional que requiere operación (PostgreSQL + Elasticsearch propios de Temporal).
 - Curva de aprendizaje del modelo de programación.
 
-**Mitigación**: 
+**Mitigación**:
+
 - Despliegue con Helm chart oficial en Kubernetes.
 - Capacitación del equipo en el modelo de workflows durables.
 
@@ -442,17 +462,18 @@ func AssetProcessingWorkflow(ctx workflow.Context, assetID string) error {
 **Implementación elegida**: Pool de workers en Go que invocan FFmpeg para video/audio y libvips/ImageMagick para imágenes.
 
 **Justificación**:
+
 - FFmpeg es el estándar de la industria para procesamiento multimedia.
 - libvips ofrece procesamiento de imágenes muy eficiente en memoria.
 - Workers en Go permiten gestión eficiente de procesos externos y comunicación con Temporal.
 
 **Renditions generadas por tipo de asset**:
 
-| Tipo | Renditions |
-|------|-----------|
-| Video | Preview (720p H.264), Proxy (1080p), Thumbnail (JPG), Poster frame, Waveform audio |
-| Audio | Preview (MP3 128kbps), Waveform visual (PNG), Transcripción (si ASR habilitado) |
-| Imagen | Thumbnail (300px), Preview (1200px), WebP optimizado |
+| Tipo   | Renditions                                                                         |
+| ------ | ---------------------------------------------------------------------------------- |
+| Video  | Preview (720p H.264), Proxy (1080p), Thumbnail (JPG), Poster frame, Waveform audio |
+| Audio  | Preview (MP3 128kbps), Waveform visual (PNG), Transcripción (si ASR habilitado)   |
+| Imagen | Thumbnail (300px), Preview (1200px), WebP optimizado                               |
 
 **Escalamiento**: Los workers son stateless y escalan horizontalmente según la cola de trabajos pendientes. Se utiliza Kubernetes Horizontal Pod Autoscaler basado en métricas de profundidad de cola.
 
@@ -466,13 +487,13 @@ func AssetProcessingWorkflow(ctx workflow.Context, assetID string) error {
 
 **Capacidades de enriquecimiento**:
 
-| Capacidad | Modelo/Herramienta | Output |
-|-----------|-------------------|--------|
-| Detección de objetos/escenas | YOLO v8 / CLIP | Labels, bounding boxes |
-| OCR (texto en imágenes/video) | Tesseract / PaddleOCR | Texto extraído |
-| ASR (speech-to-text) | Whisper (OpenAI, self-hosted) | Transcripción + timestamps |
-| Embeddings semánticos | CLIP / Sentence Transformers | Vectores para búsqueda semántica |
-| Detección de rostros | dlib / MTCNN | Coordenadas, opcionalmente identidad |
+| Capacidad                      | Modelo/Herramienta            | Output                               |
+| ------------------------------ | ----------------------------- | ------------------------------------ |
+| Detección de objetos/escenas  | YOLO v8 / CLIP                | Labels, bounding boxes               |
+| OCR (texto en imágenes/video) | Tesseract / PaddleOCR         | Texto extraído                      |
+| ASR (speech-to-text)           | Whisper (OpenAI, self-hosted) | Transcripción + timestamps          |
+| Embeddings semánticos         | CLIP / Sentence Transformers  | Vectores para búsqueda semántica   |
+| Detección de rostros          | dlib / MTCNN                  | Coordenadas, opcionalmente identidad |
 
 **Arquitectura del servicio**:
 
@@ -484,7 +505,7 @@ flowchart LR
         WORKER[GPU Workers]
         MODELS[Model Registry]
     end
-    
+  
     TEMPORAL[Temporal Activity] -->|gRPC/HTTP| API
     API --> QUEUE
     QUEUE --> WORKER
@@ -493,15 +514,18 @@ flowchart LR
 ```
 
 **Consideraciones de hardware**:
+
 - Para volumen alto de procesamiento, se recomienda nodos con GPU (NVIDIA T4 o superior).
 - Los modelos pueden ejecutarse en CPU con mayor latencia para volúmenes bajos.
 - Uso de NVIDIA Triton Inference Server para optimizar serving de modelos en producción.
 
 **Debilidades**:
+
 - Modelos de IA pueden producir resultados incorrectos (false positives/negatives).
 - Alto consumo de recursos (GPU/memoria).
 
 **Mitigación**:
+
 - Los resultados de IA se marcan como "sugeridos" para revisión editorial opcional.
 - Queue management para evitar saturación de recursos GPU.
 
@@ -514,6 +538,7 @@ flowchart LR
 **Implementación elegida**: OpenSearch con plugin de vector search (k-NN).
 
 **Justificación**:
+
 - OpenSearch es el fork open source de Elasticsearch, sin riesgos de licenciamiento.
 - Soporta nativamente búsqueda híbrida: BM25 (texto) + k-NN (vectores) + filtros.
 - Agregaciones para facetas y analytics.
@@ -558,10 +583,12 @@ flowchart LR
 4. **Búsqueda híbrida**: Combinación ponderada de BM25 + k-NN para mejores resultados.
 
 **Debilidades**:
+
 - Índice debe mantenerse sincronizado con la base de datos.
 - Búsqueda semántica requiere generar embeddings para cada query.
 
 **Mitigación**:
+
 - Patrón de consistencia eventual aceptable para búsqueda.
 - Cache de embeddings de queries frecuentes en Redis.
 
@@ -575,13 +602,13 @@ flowchart LR
 
 **Canales soportados**:
 
-| Canal | Protocolo/API | Formato típico |
-|-------|--------------|----------------|
-| CMS Web | REST API | Imagen WebP, Video HLS |
-| TV/Playout | MOS Protocol / FTP | Video MXF/ProRes |
-| YouTube | YouTube Data API v3 | Video MP4 H.264 |
-| Facebook/Instagram | Graph API | Video MP4, Imagen JPG |
-| Twitter/X | Twitter API v2 | Video MP4, Imagen PNG |
+| Canal              | Protocolo/API       | Formato típico        |
+| ------------------ | ------------------- | ---------------------- |
+| CMS Web            | REST API            | Imagen WebP, Video HLS |
+| TV/Playout         | MOS Protocol / FTP  | Video MXF/ProRes       |
+| YouTube            | YouTube Data API v3 | Video MP4 H.264        |
+| Facebook/Instagram | Graph API           | Video MP4, Imagen JPG  |
+| Twitter/X          | Twitter API v2      | Video MP4, Imagen PNG  |
 
 **Flujo de distribución**:
 
@@ -596,19 +623,20 @@ sequenceDiagram
     W->>D: DistributionRequest(assetId, channels, rules)
     D->>R: SelectRenditions(assetId, channelRequirements)
     R-->>D: renditionURLs
-    
+  
     loop Por cada canal
         D->>C: Publish(channel, rendition, metadata)
         C->>EXT: API Call / Upload
         EXT-->>C: Confirmación
         C-->>D: PublishResult
     end
-    
+  
     D->>D: Registrar estado por canal
     D-->>W: DistributionComplete
 ```
 
 **Reglas de distribución**: El servicio soporta reglas configurables que determinan cuándo y cómo distribuir:
+
 - Por tipo de asset (solo videos a TV, imágenes a redes).
 - Por estado editorial (solo assets aprobados).
 - Por metadata (tags específicos, proyectos).
@@ -623,6 +651,7 @@ sequenceDiagram
 **Implementación elegida**: PostgreSQL 16 con configuración de alta disponibilidad.
 
 **Justificación**:
+
 - PostgreSQL es la base de datos relacional open source más robusta y completa.
 - Soporte nativo de JSON para metadatos semi-estructurados.
 - Extensiones útiles: pg_partman (particionado), pg_stat_statements (análisis de queries).
@@ -676,18 +705,19 @@ CREATE TABLE renditions (
 ```
 
 **Alta disponibilidad**:
+
 - Primary + 2 Replicas síncronas en distintas zonas de disponibilidad.
 - PgBouncer para connection pooling.
 - Patroni para failover automático.
 
 **Opciones analizadas**:
 
-| Opción | Ventajas | Desventajas | Decisión |
-|--------|----------|-------------|----------|
-| PostgreSQL | Robusto, maduro, JSONB, extensiones | Escalamiento horizontal complejo | ✓ Elegido |
-| CockroachDB | SQL distribuido, escala horizontal | Más complejo, menos herramientas | Alternativa futura |
-| MySQL | Popular, simple | Menos features que PostgreSQL | Descartado |
-| MongoDB | Flexible, escala horizontal | Consistencia eventual, vendor concerns | Descartado |
+| Opción     | Ventajas                            | Desventajas                            | Decisión          |
+| ----------- | ----------------------------------- | -------------------------------------- | ------------------ |
+| PostgreSQL  | Robusto, maduro, JSONB, extensiones | Escalamiento horizontal complejo       | ✓ Elegido         |
+| CockroachDB | SQL distribuido, escala horizontal  | Más complejo, menos herramientas      | Alternativa futura |
+| MySQL       | Popular, simple                     | Menos features que PostgreSQL          | Descartado         |
+| MongoDB     | Flexible, escala horizontal         | Consistencia eventual, vendor concerns | Descartado         |
 
 ---
 
@@ -698,6 +728,7 @@ CREATE TABLE renditions (
 **Implementación elegida**: Redis Cluster.
 
 **Casos de uso**:
+
 - Cache de sesiones JWT decodificadas.
 - Cache de decisiones de autorización OPA.
 - Cache de queries de búsqueda frecuentes.
@@ -712,15 +743,15 @@ CREATE TABLE renditions (
 
 La siguiente tabla resume cómo la arquitectura propuesta resuelve cada atributo de calidad requerido:
 
-| Atributo | Mecanismos Arquitectónicos | Componentes Involucrados |
-|----------|---------------------------|-------------------------|
-| **Disponibilidad** | Clusters replicados, failover automático, servicios stateless, health checks | PostgreSQL (Patroni), Kafka (replication), OpenSearch (cluster), Kubernetes (self-healing) |
-| **Interoperabilidad** | APIs REST estándar, S3-compatible, conectores por canal, formatos abiertos | API Gateway, Distribution Service, Object Storage |
-| **Performance** | Índices optimizados, caching multinivel, procesamiento asíncrono, CDN para delivery | OpenSearch, Redis, Kafka, Object Storage tiering |
-| **Confiabilidad** | Workflows durables, reintentos con backoff, DLQ, checksums, idempotencia | Temporal, Kafka, Asset Service |
-| **Escalabilidad** | Componentes horizontalmente escalables, storage distribuido, sharding | Workers (HPA), Ceph, OpenSearch, Kafka partitions |
-| **Seguridad** | RBAC/ABAC, TLS everywhere, cifrado en reposo, URLs prefirmadas, auditoría | Keycloak, OPA, Object Storage encryption |
-| **Tolerancia a fallos** | Circuit breakers, graceful degradation, aislamiento de fallas, retry patterns | Distribution Service, Workers, API Gateway |
+| Atributo                      | Mecanismos Arquitectónicos                                                           | Componentes Involucrados                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Disponibilidad**      | Clusters replicados, failover automático, servicios stateless, health checks         | PostgreSQL (Patroni), Kafka (replication), OpenSearch (cluster), Kubernetes (self-healing) |
+| **Interoperabilidad**   | APIs REST estándar, S3-compatible, conectores por canal, formatos abiertos           | API Gateway, Distribution Service, Object Storage                                          |
+| **Performance**         | Índices optimizados, caching multinivel, procesamiento asíncrono, CDN para delivery | OpenSearch, Redis, Kafka, Object Storage tiering                                           |
+| **Confiabilidad**       | Workflows durables, reintentos con backoff, DLQ, checksums, idempotencia              | Temporal, Kafka, Asset Service                                                             |
+| **Escalabilidad**       | Componentes horizontalmente escalables, storage distribuido, sharding                 | Workers (HPA), Ceph, OpenSearch, Kafka partitions                                          |
+| **Seguridad**           | RBAC/ABAC, TLS everywhere, cifrado en reposo, URLs prefirmadas, auditoría            | Keycloak, OPA, Object Storage encryption                                                   |
+| **Tolerancia a fallos** | Circuit breakers, graceful degradation, aislamiento de fallas, retry patterns         | Distribution Service, Workers, API Gateway                                                 |
 
 ---
 
@@ -772,6 +803,7 @@ sequenceDiagram
 ```
 
 **Características clave**:
+
 - Chunks de 5MB para balance entre overhead y recuperabilidad.
 - El cliente puede consultar el offset actual y resumir desde ese punto.
 - Verificación de integridad end-to-end mediante SHA-256.
@@ -816,17 +848,16 @@ flowchart LR
 **Mecanismos de optimización**:
 
 1. **URLs prefirmadas**: El Asset Service genera URLs temporales (15min TTL) firmadas criptográficamente que permiten acceso directo al Object Storage, evitando que el tráfico de descarga pase por la aplicación.
-
 2. **HTTP Range Requests**: El Object Storage soporta range requests, permitiendo:
+
    - Descarga paralela de múltiples rangos.
    - Resumir descargas interrumpidas.
    - Streaming sin descargar archivo completo.
-
 3. **Tiering de storage**:
+
    - **Hot tier (SSD)**: Assets recientes y frecuentemente accedidos.
    - **Cold tier (HDD)**: Assets antiguos, acceso poco frecuente.
    - Restore automático de cold a hot ante acceso (latencia adicional de minutos).
-
 4. **Previews y proxies**: Para navegación y edición, los editores usan renditions de preview (720p) en lugar del master, reduciendo transferencia de datos.
 
 ---
@@ -846,7 +877,7 @@ flowchart TB
         API --> |Query text| EMB[Embedding Service]
         EMB --> |Query vector| API
         API --> OS[OpenSearch]
-        
+      
         subgraph OpenSearch Cluster
             OS --> BM25[BM25 Score]
             OS --> KNN[k-NN Score]
@@ -856,7 +887,7 @@ flowchart TB
             FILTER --> COMBINE
             COMBINE --> RANK[Final Ranking]
         end
-        
+      
         RANK --> API
         API --> RESULTS[Resultados + Thumbnails]
     end
@@ -916,6 +947,7 @@ flowchart TB
 **Patrones implementados**:
 
 1. **Idempotencia**: Cada actividad puede re-ejecutarse sin efectos secundarios duplicados.
+
    ```go
    func GenerateThumbnail(ctx context.Context, assetID string) error {
        // Verificar si ya existe
@@ -925,8 +957,8 @@ flowchart TB
        // Generar thumbnail...
    }
    ```
-
 2. **Retry con backoff exponencial**:
+
    ```go
    retryPolicy := &temporal.RetryPolicy{
        InitialInterval:    time.Second,
@@ -935,11 +967,8 @@ flowchart TB
        MaximumAttempts:    5,
    }
    ```
-
 3. **Dead Letter Queue**: Jobs que exceden reintentos van a DLQ para análisis manual.
-
 4. **Compensación**: Workflows soportan rollback parcial si una fase crítica falla.
-
 5. **Heartbeats**: Actividades de larga duración reportan progreso para detectar workers muertos.
 
 ---
@@ -954,34 +983,34 @@ flowchart TB
 flowchart TB
     subgraph Distribution Service
         ORCH[Orchestrator]
-        
+      
         subgraph Connectors
             CMS_C[CMS Connector]
             TV_C[TV Connector]
             YT_C[YouTube Connector]
             FB_C[Facebook Connector]
         end
-        
+      
         subgraph Resilience
             CB[Circuit Breakers]
             RETRY[Retry Queues]
             DLQ[Dead Letter Queue]
         end
     end
-    
+  
     ORCH --> CMS_C
     ORCH --> TV_C
     ORCH --> YT_C
     ORCH --> FB_C
-    
+  
     CMS_C --> CB
     TV_C --> CB
     YT_C --> CB
     FB_C --> CB
-    
+  
     CB --> RETRY
     RETRY --> DLQ
-    
+  
     CMS_C --> CMS[CMS Web]
     TV_C --> TV[TV/Playout]
     YT_C --> YT[YouTube]
@@ -989,6 +1018,7 @@ flowchart TB
 ```
 
 **Características**:
+
 - Cada canal tiene su propio circuit breaker: si un canal falla repetidamente, se abre el circuit y no se intentan más publicaciones hasta recuperación.
 - Fallas en un canal no afectan a otros.
 - Estado de publicación trackeado por asset y canal.
@@ -1017,21 +1047,21 @@ flowchart TB
             KONG[Kong Pods x3]
             BFF[BFF Pods x3]
         end
-        
+      
         subgraph NS_CORE["Namespace: core-services"]
             ASSET_POD[Asset Service x3]
             META_POD[Metadata Service x2]
             SEARCH_POD[Search Service x3]
             DIST_POD[Distribution Service x2]
         end
-        
+      
         subgraph NS_PROC["Namespace: processing"]
             WF_POD[Temporal Workers x2]
             TRANS_POD[Transcode Workers x5]
             AI_POD[AI Workers x3<br/>GPU Nodes]
             INDEX_POD[Indexer Workers x2]
         end
-        
+      
         subgraph NS_AUTH["Namespace: auth"]
             KC_POD[Keycloak x3]
             OPA_POD[OPA Sidecars]
@@ -1045,28 +1075,28 @@ flowchart TB
             PG_REPLICA2[(Replica 2)]
             PGBOUNCER[PgBouncer]
         end
-        
+      
         subgraph KAFKA_CLUSTER["Kafka Cluster"]
             KAFKA1[Broker 1]
             KAFKA2[Broker 2]
             KAFKA3[Broker 3]
             ZK[ZooKeeper<br/>o KRaft]
         end
-        
+      
         subgraph OS_CLUSTER["OpenSearch Cluster"]
             OS1[Data Node 1]
             OS2[Data Node 2]
             OS3[Data Node 3]
             OS_COORD[Coordinator]
         end
-        
+      
         subgraph REDIS_CLUSTER["Redis Cluster"]
             REDIS1[Master 1]
             REDIS2[Master 2]
             REDIS3[Master 3]
             REDIS_R[Replicas]
         end
-        
+      
         subgraph CEPH_CLUSTER["Ceph Storage Cluster"]
             MON1[Monitor 1]
             MON2[Monitor 2]
@@ -1074,7 +1104,7 @@ flowchart TB
             OSD[OSD Nodes x6+]
             RGW[RADOS Gateway x2]
         end
-        
+      
         subgraph TEMPORAL_INFRA["Temporal Infrastructure"]
             TEMP_FE[Frontend x2]
             TEMP_HIST[History x3]
@@ -1095,20 +1125,20 @@ flowchart TB
     ASSET_POD --> PGBOUNCER
     ASSET_POD --> RGW
     ASSET_POD --> KAFKA1
-    
+  
     SEARCH_POD --> OS_COORD
     SEARCH_POD --> REDIS1
-    
+  
     KAFKA1 --> WF_POD
     WF_POD --> TEMP_FE
     WF_POD --> TRANS_POD
     WF_POD --> AI_POD
     WF_POD --> INDEX_POD
-    
+  
     TRANS_POD --> RGW
     AI_POD --> RGW
     INDEX_POD --> OS_COORD
-    
+  
     DIST_POD --> EXT_SYS
 ```
 
@@ -1116,35 +1146,35 @@ flowchart TB
 
 #### Kubernetes Cluster
 
-| Componente | Cantidad | Especificación | Propósito |
-|------------|----------|----------------|-----------|
-| Control Plane | 3 | 4 vCPU, 8GB RAM, 100GB SSD | Alta disponibilidad del cluster |
-| Worker Nodes (General) | 6+ | 8 vCPU, 32GB RAM, 200GB SSD | Servicios core |
-| Worker Nodes (GPU) | 2-4 | 8 vCPU, 64GB RAM, NVIDIA T4/A10 | AI Enrichment |
+| Componente             | Cantidad | Especificación                 | Propósito                      |
+| ---------------------- | -------- | ------------------------------- | ------------------------------- |
+| Control Plane          | 3        | 4 vCPU, 8GB RAM, 100GB SSD      | Alta disponibilidad del cluster |
+| Worker Nodes (General) | 6+       | 8 vCPU, 32GB RAM, 200GB SSD     | Servicios core                  |
+| Worker Nodes (GPU)     | 2-4      | 8 vCPU, 64GB RAM, NVIDIA T4/A10 | AI Enrichment                   |
 
 #### Capa de Datos
 
-| Componente | Cantidad | Especificación | Storage |
-|------------|----------|----------------|---------|
-| PostgreSQL | 3 | 16 vCPU, 64GB RAM | 2TB NVMe SSD |
-| Kafka Brokers | 3 | 8 vCPU, 32GB RAM | 1TB SSD |
-| OpenSearch Data | 3 | 16 vCPU, 64GB RAM | 2TB NVMe SSD |
-| Redis | 6 | 4 vCPU, 16GB RAM | 100GB SSD |
-| Ceph OSD | 6+ | 8 vCPU, 32GB RAM | 4x 10TB HDD + 1x 400GB NVMe |
-| Ceph Monitor | 3 | 4 vCPU, 8GB RAM | 100GB SSD |
-| Temporal | 7 | 4-8 vCPU, 16-32GB RAM | 500GB SSD |
+| Componente      | Cantidad | Especificación       | Storage                     |
+| --------------- | -------- | --------------------- | --------------------------- |
+| PostgreSQL      | 3        | 16 vCPU, 64GB RAM     | 2TB NVMe SSD                |
+| Kafka Brokers   | 3        | 8 vCPU, 32GB RAM      | 1TB SSD                     |
+| OpenSearch Data | 3        | 16 vCPU, 64GB RAM     | 2TB NVMe SSD                |
+| Redis           | 6        | 4 vCPU, 16GB RAM      | 100GB SSD                   |
+| Ceph OSD        | 6+       | 8 vCPU, 32GB RAM      | 4x 10TB HDD + 1x 400GB NVMe |
+| Ceph Monitor    | 3        | 4 vCPU, 8GB RAM       | 100GB SSD                   |
+| Temporal        | 7        | 4-8 vCPU, 16-32GB RAM | 500GB SSD                   |
 
 #### Red
 
-| Conexión | Protocolo | Puerto | Cifrado |
-|----------|-----------|--------|---------|
-| Clientes → Load Balancer | HTTPS | 443 | TLS 1.3 |
-| Load Balancer → Kong | HTTP/2 | 8000 | mTLS opcional |
-| Servicios → PostgreSQL | TCP | 5432 | TLS |
-| Servicios → Kafka | TCP | 9092 | SASL_SSL |
-| Servicios → OpenSearch | HTTPS | 9200 | TLS |
-| Servicios → Ceph RGW | HTTPS | 443 | TLS |
-| Servicios → Redis | TCP | 6379 | TLS |
+| Conexión                 | Protocolo | Puerto | Cifrado       |
+| ------------------------- | --------- | ------ | ------------- |
+| Clientes → Load Balancer | HTTPS     | 443    | TLS 1.3       |
+| Load Balancer → Kong     | HTTP/2    | 8000   | mTLS opcional |
+| Servicios → PostgreSQL   | TCP       | 5432   | TLS           |
+| Servicios → Kafka        | TCP       | 9092   | SASL_SSL      |
+| Servicios → OpenSearch   | HTTPS     | 9200   | TLS           |
+| Servicios → Ceph RGW     | HTTPS     | 443    | TLS           |
+| Servicios → Redis        | TCP       | 6379   | TLS           |
 
 ### 4.5.3 Modelo de Escalamiento
 
@@ -1227,7 +1257,7 @@ sequenceDiagram
         Note over K,SEARCH: Fase 3: Procesamiento Asíncrono
         K->>T: AssetCreated event
         T->>T: Start AssetProcessingWorkflow
-        
+      
         par Procesamiento paralelo
             T->>TW: GenerateThumbnails
             TW->>OS: Upload thumbnails
@@ -1269,21 +1299,21 @@ sequenceDiagram
 
     E->>GW: GET /api/v1/search?q=protesta&type=video&from=2024-01-01
     GW->>SS: Search(query, filters)
-    
+  
     SS->>CACHE: Check cache(queryHash)
     alt Cache hit
         CACHE-->>SS: Cached results
     else Cache miss
         SS->>EMB: GenerateEmbedding(query)
         EMB-->>SS: queryVector
-        
+      
         SS->>OS: HybridSearch(text, vector, filters)
         Note over OS: BM25 + k-NN + Filters
         OS-->>SS: Ranked results
-        
+      
         SS->>CACHE: Store(queryHash, results, TTL=5min)
     end
-    
+  
     SS-->>GW: {results, facets, totalCount}
     GW-->>E: 200 OK + JSON response
 ```
@@ -1334,4 +1364,3 @@ sequenceDiagram
     T->>DS: UpdateDistributionStatus
     T->>K: Publish(DistributionCompleted)
 ```
-
