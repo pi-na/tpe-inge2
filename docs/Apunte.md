@@ -14,9 +14,6 @@ Un **asset** (imagen, video, audio) tiene **un original (master)**
 y  **múltiples renditions** , cada una con:
 
 * distinto **formato**
-* distinta **resolución / tamaño**
-* distinta **calidad / bitrate**
-* distinto **propósito**
 
 El  **master nunca se toca** ; las renditions se generan y descartan cuando sea necesario.
 
