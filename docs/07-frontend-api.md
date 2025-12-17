@@ -20,6 +20,7 @@
 ### 7.2.2. Stack concreto
 
 - **Framework**: React + TypeScript.
+  **investigar: TanStack Query**
 - **Estado asíncrono / cache de server-state**: TanStack Query (`@tanstack/react-query`).
 - **Upload resiliente**: Uppy con plugin `@uppy/aws-s3` (soporta multipart según tamaño y reintentos).
 - **Reproducción**:
@@ -84,16 +85,19 @@ Se implementa un **BFF lógico** (DAM API) que expone un contrato estable a la S
 **Decisión**: el archivo se sube **directamente a la key final** en `dam-archive` (masters), sin staging `uploads/` que requiera `CopyObject`.
 
 **Justificación técnica**:
+
 - Minimiza I/O y evita reescrituras de objetos enormes.
 - El objeto **no es visible** hasta `CompleteMultipartUpload`.
 - La “promoción” se controla por estado en DB (UPLOADING→PROCESSING→READY).
 
 **Convención de keys (inmutable y auditable)**:
+
 - Master: `masters/{assetId}/{sha256}/source.{ext}`
 - Proxies/thumbnails: `proxies/{assetId}/{sha256}/{profile}/...`
 - Delivery (CDN origin): `delivery/{channel}/{assetId}/{sha256}/{profile}/...`
 
 **API (contrato concreto)**:
+
 - `POST /api/v1/assets/upload/init`
   - body: `{ filename, size_bytes, mime_type }`
   - resp: `{ assetId, uploadId, s3Key, partSizeBytes, maxConcurrency }`
@@ -160,6 +164,7 @@ sequenceDiagram
   - resp (si existe): `{ url, expiresAt }`
 
 **Headers en la firma**:
+
 - `Response-Content-Disposition: attachment; filename="..."`
 - `Response-Content-Type` (si corresponde)
 
@@ -174,30 +179,33 @@ sequenceDiagram
   - resp: `{ status: PENDING|RUNNING|READY|FAILED, progress?, downloadUrl? }`
 
 **Orquestación**:
+
 - Temporal workflow `OnDemandRenditionWorkflow(assetId, profile)`.
 - Task Queue dedicada: **`q-transcode-interactive`** (prioriza interacciones sobre batch).
 
 **Retención**:
+
 - output se guarda en `dam-proxies` bajo `ondemand/{assetId}/{sha256}/{profile}/...`.
 - lifecycle: expiración **48h** (limpieza automática).
 
 ## 7.6. Vista física (frontend + API)
 
 ```mermaid
-flowchart LR
-  U["Usuarios / Browser"] -->|HTTPS 443| LB["Load Balancer L4"]
-  LB --> IG["Ingress Traefik (K8s)"]
-  IG --> FE["Frontend NGINX (Static SPA)"]
-  IG --> API["DAM API (Go)"]
-  API --> KC["Keycloak (OIDC)"]
-  API --> DB["PostgreSQL"]
-  API --> OS["OpenSearch Cluster"]
-  API --> T["Temporal Server"]
-  U -->|HTTPS PUT/GET presigned| RGW["Ceph RGW (S3 endpoint)"]
-  RGW --> CEPH["Ceph Cluster Pools"]
+graph LR
+  U[Usuarios/Browser] -->|HTTPS 443| LB[(Load Balancer L4)]
+  LB --> IG["Ingress Traefik K8s"]
+  IG --> FE["Frontend NGINX static SPA"]
+  IG --> API["DAM API Go"]
+  API --> KC["Keycloak OIDC"]
+  API --> DB[(PostgreSQL)]
+  API --> OS[(OpenSearch Cluster)]
+  API --> T[(Temporal Server)]
+  U -->|"HTTPS PUT/GET Presigned"| RGW["Ceph RGW S3 Endpoint"]
+  RGW --> CEPH[(Ceph Cluster Pools)]
 ```
 
 **Notas de red**:
+
 - Endpoint RGW accesible desde usuarios (o vía edge) para PUT/GET presignados.
 - Tráfico pesado **no** ingresa al API.
 - Para streaming, se habilitan **Range Requests** y CORS donde aplique.
