@@ -4,23 +4,6 @@
 
 ## 8.1. Storage (Ceph RGW / S3) – staging y lifecycle
 
-### 8.1.1. Eliminar el “staging por prefijo” (`uploads/`) como mecanismo principal
-
-- **Problema**: en S3, un “move” equivale a `CopyObject + DeleteObject` (re-escritura). Para objetos de decenas de GB es inaceptable.
-- **Decisión**: el upload multipart se realiza **directo a la key final** del master.
-- **Control de visibilidad**: por estado en DB (UPLOADING/PROCESSING/READY) + no emitir URLs de lectura hasta READY.
-
-**Acción**:
-- En `dam-archive`, mantener solo:
-  - `AbortIncompleteMultipartUpload: 7d`.
-- Quitar regla `Expiration prefix uploads/` salvo que se mantenga un bucket de staging **separado y explícito** para casos excepcionales.
-
-### 8.1.2. Agregar prefijo `ondemand/` y expiración corta
-
-- **Motivo**: renditions on-demand son temporales.
-- **Acción**: en `dam-proxies`, agregar:
-  - `Expiration – Prefix ondemand/ (2 días)`.
-
 ## 8.2. Convención de keys inmutables (CDN/cache) – actualización necesaria
 
 ### 8.2.1. Keys versionadas e inmutables
@@ -31,6 +14,7 @@
   - simplifica idempotencia del pipeline (si la misma entrada produce el mismo hash, la salida es deduplicable).
 
 **Acción**:
+
 - Ajustar texto de 4.4 “Estrategia de Entrega” para que:
   - el transcodificador escriba en rutas inmutables (con hash/version);
   - la aplicación publique “punteros” (DB) a la versión activa.
@@ -40,15 +24,18 @@
 ### 8.3.1. No se usan embeddings
 
 **Decisión**: eliminar de la documentación y del diseño de índices cualquier mención a:
+
 - `text_embedding`, k-NN, búsqueda híbrida lexical+vector.
 
 ### 8.3.2. Índices recomendados (texto)
 
 Mantener:
+
 - `dam-assets-video-v1`, `dam-assets-audio-v1`, `dam-assets-image-v1`.
 - `dam-transcript-segments-v1`.
 
 **Acción**:
+
 - En el mapeo, usar campos:
   - `text` para full-text (con analyzer ES),
   - `keyword` para facetas/filtrado exacto,
@@ -68,6 +55,7 @@ Mantener:
   - TF‑IDF para keywords.
 
 **Acción**:
+
 - Ajustar la narrativa para que “indexación inteligente” se logre por:
   - transcripción + OCR + tags + NER/keywords.
 
@@ -80,6 +68,7 @@ Mantener:
 - **Política operativa**: límites de concurrencia para evitar canibalizar batch.
 
 **Acción**:
+
 - Actualizar la sección de workers:
   - Transcode Worker escucha `q-transcode` y `q-transcode-interactive` (deployments separados o mismo binario con config distinta).
 - Agregar ScaledObject de KEDA por cola (targetQueueSize más bajo para transcode pesado).
@@ -89,6 +78,7 @@ Mantener:
 ### 8.6.1. Persistencia de upload multipart
 
 Agregar tablas (o equivalentes):
+
 - `asset_upload_sessions`: `asset_id`, `upload_id`, `s3_key`, `part_size`, `created_by`, `status`, timestamps.
 - `asset_upload_parts` (opcional): tracking de `part_number`, `etag` para diagnósticos/reintentos (no imprescindible si el FE lo conserva, pero útil para auditoría).
 

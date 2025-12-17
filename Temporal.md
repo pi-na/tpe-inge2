@@ -13,10 +13,9 @@ A diferencia de las arquitecturas basadas en coreografía (eventos disparados en
 ### Decisiones de Diseño
 
 1. **Code-as-Infrastructure:** Los pipelines se definen en código (Go/Java) y no en archivos JSON/XML propietarios (como en AWS Step Functions o Airflow). Esto permite testeo unitario, versionado en Git y uso de estructuras de control nativas del lenguaje.
-
 2. **Durabilidad Garantizada:** Temporal persiste el historial de eventos en su base de datos (PostgreSQL). Si un worker o el orquestador colapsan en medio de una transcodificación de 2 horas, al recuperarse el sistema retoma el proceso exactamente en el punto de fallo sin perder estado.
-
 3. **Abstracción Workflow vs. Activity:**
+
    - **Workflow:** Define la lógica de negocio (el DAG: Directed Acyclic Graph). Es determinístico y liviano.
    - **Activity:** Realiza el trabajo pesado (FFmpeg, llamadas a API de IA). Puede fallar y reintentarse.
 
@@ -28,12 +27,37 @@ Para garantizar la escalabilidad y evitar que tareas intensivas en CPU (transcod
 
 Se definen contenedores Docker específicos para cada tipo de tarea, desplegados en Kubernetes como Deployments independientes. Cada grupo de workers escucha una Task Queue específica en Temporal.
 
-| Tipo de Worker | Task Queue | Recursos Requeridos | Responsabilidad |
-|----------------|------------|---------------------|-----------------|
-| Ingest Worker | `q-ingest` | High I/O, Low CPU | Validación de archivos, cálculo de hash SHA-256, escaneo de virus |
-| Transcode Worker | `q-transcode` | High CPU/GPU | Ejecución de FFmpeg/libvips. Renderizado de proxies y thumbnails |
-| AI Worker | `q-ai-enrich` | GPU / Tensor Cores | Inferencia de modelos (Whisper, YOLO, OCR) |
-| Dist Worker | `q-distribution` | High Network, Low CPU | Transferencia a CDN, llamadas a APIs sociales (I/O bound) |
+| Tipo de Worker                 | Task Queue                  | Recursos Requeridos         | Responsabilidad                                                                                           |
+| ------------------------------ | --------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Ingest Worker                  | `q-ingest`                | High I/O, Low CPU           | Validación de archivos, cálculo de hash SHA-256, escaneo de virus                                       |
+| Transcode Worker (Batch)       | `q-transcode`             | High CPU/GPU                | Ejecución de FFmpeg/libvips. Renderizado de proxies y thumbnails para pipelines de ingesta masiva        |
+| Transcode Worker (Interactivo) | `q-transcode-interactive` | High CPU/GPU (cupo acotado) | Renditions**on-demand** solicitadas por usuarios (descarga/formato específico con prioridad de UX) |
+| AI Worker                      | `q-ai-enrich`             | GPU / Tensor Cores          | Inferencia de modelos (Whisper, YOLO, OCR)                                                                |
+| Dist Worker                    | `q-distribution`          | High Network, Low CPU       | Transferencia a CDN, llamadas a APIs sociales (I/O bound)                                                 |
+
+### 6.2.1. Agregar cola de transcode interactivo (prioridad UX sin canibalizar batch)
+
+La cola `q-transcode` (batch) está optimizada para throughput (ingesta continua, colas profundas y escalado agresivo). Sin embargo, el caso **on-demand** (por ejemplo “necesito ProRes para edición ya”) requiere un objetivo distinto: **latencia baja** para el usuario, sin esperar a que termine un backlog masivo.
+
+Por este motivo se introduce una **Task Queue dedicada**:
+
+- **Nueva Task Queue**: `q-transcode-interactive`.\n
+- **Uso**: ejecutar Activities de transcodificación disparadas por interacciones del usuario (descargas con formato no existente, exports, etc.).\n
+- **Política operativa**: **cupo acotado** y límites de concurrencia para garantizar que lo interactivo no consuma el 100% de CPU/GPU del clúster y afecte la ingesta.
+
+#### Implementación concreta (routing + deployments)
+
+1. **Routing a nivel Workflow/Activity (Temporal):** el workflow que atiende requests on-demand configura las Activities de transcode con `TaskQueue: "q-transcode-interactive"`. El workflow de ingesta mantiene `TaskQueue: "q-transcode"`.
+2. **Deployments separados (Kubernetes):**
+
+   - `transcode-worker-batch` (polling `q-transcode`): escalado amplio; orientado a throughput.
+   - `transcode-worker-interactive` (polling `q-transcode-interactive`): escalado acotado; orientado a baja latencia y respuesta rápida.
+3. **Límites de concurrencia en el proceso del worker (defensa en profundidad):**
+
+   - En el worker interactivo se configura un máximo de Activities concurrentes (por ejemplo 1–2 por pod) para evitar saturación (FFmpeg suele ser CPU/GPU-bound).
+   - En el worker batch se permite mayor concurrencia por pod (según hardware), priorizando utilización total de recursos.
+
+> **Justificación:** separar por colas permite aplicar políticas de escalado, priorización y límites distintos sin inventar un scheduler propio. Temporal hace el encolado y KEDA traduce backlog en réplicas por cola.
 
 ### Diagrama Lógico de Orquestación
 
@@ -41,14 +65,17 @@ Se definen contenedores Docker específicos para cada tipo de tarea, desplegados
 graph TD
     Client[API Gateway / Upload Service] -->|StartWorkflow| T_Server[Temporal Server Cluster]
     T_Server -->|Task Schedule| Q_Trans[Cola: q-transcode]
+    T_Server -->|Task Schedule| Q_TransI[Cola: q-transcode-interactive]
     T_Server -->|Task Schedule| Q_AI[Cola: q-ai-enrich]
-    
+  
     subgraph K8s Cluster
         W_Trans[Pod: Transcode Worker Group] -- Poll --> Q_Trans
+        W_TransI[Pod: Transcode Worker Interactivo] -- Poll --> Q_TransI
         W_AI[Pod: AI Worker Group] -- Poll --> Q_AI
     end
-    
+  
     W_Trans -->|Activity Result| T_Server
+    W_TransI -->|Activity Result| T_Server
     W_AI -->|Activity Result| T_Server
 ```
 
@@ -63,6 +90,7 @@ El requerimiento de reaccionar a picos de carga (sin sobredimensionar infraestru
 KEDA consulta periódicamente el Temporal Frontend gRPC endpoint y obtiene una estimación del tamaño de cola (pendientes) para una taskQueue. En base a ese backlog, KEDA calcula el número deseado de réplicas para el Deployment de workers.
 
 **Regla de decisión (conceptual):**
+
 - `desiredReplicas ≈ ceil(backlog / targetQueueSize)`
 - Acotado por `minReplicaCount` y `maxReplicaCount`
 
@@ -81,17 +109,18 @@ Esto se alinea con el patrón Worker-per-Task-Queue: cada cola (`q-transcode`, `
 
 Para cada grupo de workers se define un `ScaledObject` con:
 
-| Parámetro | Descripción |
-|-----------|-------------|
-| `endpoint` | `temporal-frontend.<ns>.svc.cluster.local:7233` (gRPC) |
-| `namespace` | Namespace Temporal (ej. `dam`) |
-| `taskQueue` | Cola a monitorear (ej. `q-transcode`) |
-| `queueTypes` | `activity` para workers que ejecutan Activities |
-| `targetQueueSize` | Backlog "deseable" por réplica (controla agresividad de escalado) |
-| `activationTargetQueueSize` | Umbral para activar el escalado (útil para scale-to-zero) |
-| `pollingInterval` / `cooldownPeriod` | Frecuencia de evaluación y tiempo de enfriamiento |
+| Parámetro                               | Descripción                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| `endpoint`                             | `temporal-frontend.<ns>.svc.cluster.local:7233` (gRPC)           |
+| `namespace`                            | Namespace Temporal (ej.`dam`)                                    |
+| `taskQueue`                            | Cola a monitorear (ej.`q-transcode`)                             |
+| `queueTypes`                           | `activity` para workers que ejecutan Activities                  |
+| `targetQueueSize`                      | Backlog "deseable" por réplica (controla agresividad de escalado) |
+| `activationTargetQueueSize`            | Umbral para activar el escalado (útil para scale-to-zero)         |
+| `pollingInterval` / `cooldownPeriod` | Frecuencia de evaluación y tiempo de enfriamiento                 |
 
 **Criterio práctico de sizing:**
+
 - `q-transcode`: `targetQueueSize` bajo (ej. 1–3) porque cada Activity es pesada.
 - `q-ai-enrich`: similar si usa GPU.
 - `q-distribution`: `targetQueueSize` mayor (ej. 10–50), porque son tareas I/O bound y cortas.
@@ -128,11 +157,60 @@ spec:
         activationTargetQueueSize: "0"
 ```
 
+### 6.3.4.1. Implementación (YAML) — ScaledObject para `q-transcode-interactive` (cupo y latencia)
+
+Para el transcode **interactivo**, el escalado se configura con objetivos más conservadores y límites estrictos:
+
+- **`targetQueueSize` más bajo** (ej. 1): intenta mantener backlog ~0–1 por réplica.\n
+- **`minReplicaCount`** típicamente 1: evita cold-start cuando un editor solicita un export.\n
+- **`maxReplicaCount` acotado** (ej. 5–10): límite presupuestario y, principalmente, para no canibalizar batch.\n
+
+Ejemplo:
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: transcode-interactive-workers-scaler
+spec:
+  scaleTargetRef:
+    name: transcode-interactive-worker-deployment
+  pollingInterval: 5
+  cooldownPeriod: 60
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120
+  triggers:
+    - type: temporal
+      metadata:
+        endpoint: temporal-frontend.temporal.svc.cluster.local:7233
+        namespace: dam
+        taskQueue: q-transcode-interactive
+        queueTypes: activity
+        targetQueueSize: "1"
+        activationTargetQueueSize: "0"
+```
+
+#### Política operativa recomendada (evitar canibalización)
+
+La separación de colas no basta si ambos deployments compiten por los mismos nodos. Para garantizar aislamiento se aplican, en conjunto:
+
+1. **Cupo por escalado (KEDA):** `maxReplicaCount` del interactivo bajo.\n
+2. **Cupo por pod (worker options):** baja concurrencia por pod en el interactivo.\n
+3. **Aislamiento por scheduling (Kubernetes):** si hay GPU/CPU dedicadas, usar `nodeSelector`/`taints & tolerations` para reservar un pool pequeño a interacciones (o, alternativamente, asignar `PriorityClass` más alta al interactivo con límites de recursos para no expulsar batch indiscriminadamente).\n
+
+> Resultado: el sistema puede responder rápido a solicitudes puntuales sin bloquear la ingesta masiva ni degradar la estabilidad del clúster.
+
 ### 6.3.5. Scale-to-zero: cuándo aplicarlo y cómo evitar comportamientos indeseados
 
 KEDA permite `minReplicaCount: 0`, pero Temporal Scaler advierte que activar/desactivar solo por backlog puede ser no confiable al escalar a cero (no contempla tareas "in-flight" o workloads de baja tasa que nunca generan backlog suficiente). Por eso, si se habilita scale-to-zero, se deben ajustar `cooldownPeriod` y el comportamiento de scale-down del HPA.
 
 **Política recomendada en este DAM:**
+
 - **No scale-to-zero** para `q-transcode` (evita demoras por cold start y reduce riesgo de cortar procesamiento en picos intermitentes).
 - **Scale-to-zero opcional** para colas esporádicas (p.ej. `q-distribution` si la carga es muy puntual), con `cooldownPeriod` alto y estabilización.
 
@@ -166,15 +244,16 @@ Si un servicio externo (ej. la base de datos o un servicio de IA) está caído, 
 
 Para evitar Vendor Lock-in, el clúster de Temporal es **"Self-Hosted"** sobre la infraestructura IaaS seleccionada.
 
-| Componente | Descripción |
-|------------|-------------|
-| **Temporal Frontend/History/Matching Services** | Desplegados como Pods stateless en Kubernetes. Escalan horizontalmente. |
-| **Persistencia (Backend)** | Clúster de PostgreSQL (gestionado por nosotros en IaaS) para almacenar el historial de eventos y estado de workflows. |
-| **Visibilidad (Advanced Visibility)** | Elasticsearch, reutilizando el cluster ya definido para indexación del DAM. |
+| Componente                                            | Descripción                                                                                                           |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Temporal Frontend/History/Matching Services** | Desplegados como Pods stateless en Kubernetes. Escalan horizontalmente.                                                |
+| **Persistencia (Backend)**                      | Clúster de PostgreSQL (gestionado por nosotros en IaaS) para almacenar el historial de eventos y estado de workflows. |
+| **Visibilidad (Advanced Visibility)**           | Elasticsearch, reutilizando el cluster ya definido para indexación del DAM.                                           |
 
 ### Beneficios de Elasticsearch para Visibility
 
 La integración con Elasticsearch permite:
+
 - **Queries complejos sobre workflows:** búsqueda full-text, filtros LIKE/BETWEEN, ORDER BY sobre Custom Search Attributes.
 - **Debugging operativo:** "¿Qué workflows fallaron para el asset X?"
 - **Auditoría:** "¿Qué workflows ejecutó el usuario Y entre fecha A y B?"
@@ -211,15 +290,15 @@ persistence:
 
 Se definen Custom Search Attributes específicos para habilitar búsquedas relevantes al dominio:
 
-| Atributo | Tipo | Uso |
-|----------|------|-----|
-| `AssetId` | Keyword | Filtrar workflows por asset específico |
-| `AssetType` | Keyword | Filtrar por tipo (video/audio/image) |
-| `FileName` | Text | Búsqueda full-text en nombre de archivo |
-| `FileSizeBytes` | Long | Filtrar por tamaño de archivo |
-| `UserId` | Keyword | Auditoría por usuario |
-| `Channel` | Keyword | Filtrar distribuciones por canal destino |
-| `ErrorType` | Keyword | Clasificar fallos para análisis |
+| Atributo          | Tipo    | Uso                                      |
+| ----------------- | ------- | ---------------------------------------- |
+| `AssetId`       | Keyword | Filtrar workflows por asset específico  |
+| `AssetType`     | Keyword | Filtrar por tipo (video/audio/image)     |
+| `FileName`      | Text    | Búsqueda full-text en nombre de archivo |
+| `FileSizeBytes` | Long    | Filtrar por tamaño de archivo           |
+| `UserId`        | Keyword | Auditoría por usuario                   |
+| `Channel`       | Keyword | Filtrar distribuciones por canal destino |
+| `ErrorType`     | Keyword | Clasificar fallos para análisis         |
 
 Estos atributos se registran en Temporal y se propagan desde los workflows, permitiendo queries como:
 
@@ -257,7 +336,7 @@ Las colas no guardan estado del flujo. Si se necesita la lógica: *"Ejecutar A, 
 
 **Implicancias en el Código:**
 
-| ❌ Prohibido | ✅ Adaptación en el DAM |
-|-------------|------------------------|
-| Guardar archivos de sesión, logs o archivos temporales de procesamiento (ej. chunks de video) en el disco local esperando que persistan entre requests. | Los workers de transcodificación deben escribir en un **Volumen Persistente compartido (PVC)** o subir directamente el stream a **Object Storage (S3)**. |
-| Guardar estado en variables globales o memoria RAM (ej. `user_sessions = []`) porque el tráfico siguiente puede caer en una réplica diferente del servicio. | Todo estado debe externalizarse a la **Base de Datos** o **Caché (Redis)**. |
+| ❌ Prohibido                                                                                                                                                   | ✅ Adaptación en el DAM                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guardar archivos de sesión, logs o archivos temporales de procesamiento (ej. chunks de video) en el disco local esperando que persistan entre requests.       | Los workers de transcodificación deben escribir en un**Volumen Persistente compartido (PVC)** o subir directamente el stream a **Object Storage (S3)**. |
+| Guardar estado en variables globales o memoria RAM (ej.`user_sessions = []`) porque el tráfico siguiente puede caer en una réplica diferente del servicio. | Todo estado debe externalizarse a la**Base de Datos** o **Caché (Redis)**.                                                                              |
