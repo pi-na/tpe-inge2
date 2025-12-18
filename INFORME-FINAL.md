@@ -1,49 +1,3 @@
-# Plataforma de Gestión de Activos Digitales (DAM) para Medios de Comunicación
-
----
-
-**72.40 Ingeniería de Software**
-
-**Alumnos:**
-
-- Roman Berruti - 63533
-- Tomás Pinausig - 63167
-- Agostina Squillari - 64047
-
-**Docentes:**
-
-- Sotuyo Dodero, Juan Martin
-- Mogni, Guido Matias
-
-**Diciembre 2024**
-
----
-
-# Índice
-
-1. [Introducción](#1-introducción)
-2. [Funcionalidad Requerida](#2-funcionalidad-requerida)
-   - 2.1 [Requerimientos Funcionales](#21-requerimientos-funcionales)
-   - 2.2 [Requerimientos No Funcionales](#22-requerimientos-no-funcionales)
-3. [Atributos de Calidad](#3-atributos-de-calidad)
-   - 3.1 [Disponibilidad](#31-disponibilidad)
-   - 3.2 [Escalabilidad](#32-escalabilidad)
-   - 3.3 [Performance](#33-performance)
-   - 3.4 [Confiabilidad](#34-confiabilidad)
-   - 3.5 [Tolerancia a Fallos](#35-tolerancia-a-fallos)
-   - 3.6 [Seguridad](#36-seguridad)
-   - 3.7 [Interoperabilidad](#37-interoperabilidad)
-4. [Arquitectura del Sistema](#4-arquitectura-del-sistema)
-   - 4.1 [Vista General de la Arquitectura](#41-vista-general-de-la-arquitectura)
-   - 4.2 [Estrategia de Deployment](#42-estrategia-de-deployment)
-   - 4.3 [Componentes del Sistema](#43-componentes-del-sistema)
-5. [Resolución de Puntos Críticos](#5-resolución-de-puntos-críticos)
-6. [Vista Física del Sistema](#6-vista-física-del-sistema)
-7. [Supuestos, Riesgos, No-Riesgos y Trade-offs](#7-supuestos-riesgos-no-riesgos-y-trade-offs)
-8. [Referencias](#8-referencias)
-
----
-
 # 1. Introducción
 
 Este trabajo define la arquitectura candidata para una Plataforma de Gestión de Activos Digitales (DAM) destinada a un grupo de medios de comunicación que administra millones de archivos de video, audio e imágenes. El objetivo del sistema es permitir el almacenamiento a largo plazo de activos originales (masters), la generación y gestión de versiones derivadas (renditions) para distintos canales, la indexación inteligente mediante metadatos y análisis de contenido con inteligencia artificial, y una búsqueda rápida y eficiente.
@@ -54,7 +8,6 @@ La solución propuesta se diseña siguiendo la metodología de documentación de
 
 Dadas estas características, el sistema presenta desafíos arquitectónicos significativos en términos de escalabilidad, performance, durabilidad y desacoplamiento, que motivan la definición de una arquitectura orientada a componentes distribuidos y procesamiento asíncrono.
 
----
 
 # 2. Funcionalidad Requerida
 
@@ -81,7 +34,6 @@ El sistema deberá cumplir con los siguientes requerimientos no funcionales:
 7. **Seguridad corporativa:** Debe contar con mecanismos de seguridad acordes a un entorno corporativo: control de accesos basado en roles, protección de datos y trazabilidad de acciones relevantes.
 8. **No vendor lock-in (IaaS only):** En caso de utilizar nube pública, la solución debe limitarse a infraestructura (IaaS), evitando dependencias de servicios gestionados o propietarios que generen vendor lock-in.
 
----
 
 # 3. Atributos de Calidad
 
@@ -183,7 +135,6 @@ Dado que la distribución de contenido es un proceso automatizado, resulta funda
 - Almacenamiento con API S3-compatible (Ceph RGW) que permite migración futura sin cambios en la aplicación.
 - Formatos de salida estándar (HLS, DASH, MP4, ProRes) compatibles con la industria.
 
----
 
 # 4. Arquitectura del Sistema
 
@@ -289,7 +240,7 @@ Se despliega un clúster de Kubernetes self-managed sobre las máquinas virtuale
 2. **Primitivas necesarias:** Provee las APIs requeridas para que KEDA funcione (HPA, métricas externas).
 3. **Portabilidad:** Un clúster Kubernetes puede moverse entre proveedores IaaS sin cambios en la aplicación.
 4. **Operación declarativa:** Manifiestos YAML versionables en Git para infraestructura como código.
-   **Alternativa descartada:** Docker Swarm carece del ecosistema maduro de autoscalers y operadores necesarios para este nivel de complejidad. No ofrece una alternativa robusta como KEDA para la auto-escala.
+Se eligió Kubernetes por encima de alternativas como Docker Swarm por carecer de un ecosistema maduro de operadores y autoscalers (como KEDA), necesarios para la complejidad del proyecto
 
 ### 4.2.3 Topología del Clúster Kubernetes
 
@@ -405,8 +356,6 @@ spec:
             memory: "256Mi"
 ```
 
----
-
 ### 4.3.2 API Gateway e Ingress (Traefik)
 
 Traefik actúa como punto de entrada único al clúster Kubernetes, manejando el ruteo de tráfico HTTP/HTTPS hacia los servicios internos, la terminación TLS y políticas de seguridad a nivel de red.
@@ -429,8 +378,6 @@ Se selecciona Traefik sobre alternativas como NGINX Ingress o HAProxy por:
 - **Configuración declarativa:** Middlewares y rutas definidas como Custom Resources.
 - **Dashboard integrado:** Visualización del estado de rutas y servicios.
 - **Let's Encrypt automático:** Renovación de certificados sin intervención manual.
-
----
 
 ### 4.3.3 DAM API (Backend for Frontend)
 
@@ -476,8 +423,6 @@ Se selecciona Go para el BFF por:
 - **Rendimiento:** Compilado, con bajo footprint de memoria y alta concurrencia mediante goroutines.
 - **Ecosistema:** SDKs oficiales de Temporal, AWS S3, PostgreSQL y Elasticsearch.
 - **Simplicidad de deployment:** Binario estático sin dependencias de runtime.
-
----
 
 ### 4.3.4 Servicio de Autenticación (Keycloak)
 
@@ -526,8 +471,6 @@ Se selecciona Keycloak sobre alternativas como Auth0 o Okta por:
 - **Estándar OIDC:** Implementación completa y certificada del protocolo.
 - **Madurez:** Proyecto respaldado por Red Hat con amplia adopción.
 - **Extensibilidad:** SPIs para personalización de flujos de autenticación.
-
----
 
 ### 4.3.5 Base de Datos Relacional (PostgreSQL)
 
@@ -604,7 +547,6 @@ Elegimos desplegar PGSQL mediante el operador CrunchyData (PGO) que gestiona:
 - Failover automático
 - Connection pooling con PgBouncer
 
----
 
 ### 4.3.6 Motor de Búsqueda (Elasticsearch)
 
@@ -656,8 +598,6 @@ El cluster se despliega en Kubernetes mediante ECK (Elastic Cloud on Kubernetes)
 - Cada índice con al menos 1 réplica
 - Shards primarios y réplicas en nodos diferentes
 - Snapshots periódicos a Ceph S3 para disaster recovery
-
----
 
 ### 4.3.7 Almacenamiento de Objetos (Ceph)
 
@@ -750,8 +690,6 @@ delivery/{channel}/{assetId}/{sha256}/{profile}/manifest.m3u8
 
 **Justificación:** Las keys incluyen `sha256` y versión de perfil, lo que garantiza que ante cualquier cambio se escriba una nueva key. Esto permite headers `Cache-Control: immutable` con alto hit ratio en CDN sin invalidaciones.
 
----
-
 ### 4.3.8 Orquestador de Workflows (Temporal)
 
 #### Responsabilidad
@@ -796,8 +734,6 @@ Se definen atributos personalizados para búsquedas relevantes al dominio:
 | `Channel`       | Keyword | Filtrar distribuciones por canal     |
 | `ErrorType`     | Keyword | Clasificar fallos                    |
 
----
-
 ### 4.3.9 Ingest Workers
 
 #### Responsabilidad
@@ -822,8 +758,6 @@ Los Ingest Workers ejecutan la primera etapa del pipeline de procesamiento: vali
 3. Ejecuta ffprobe/exiftool para extraer metadatos técnicos.
 4. Actualiza PostgreSQL con metadatos extraídos.
 5. Dispara siguiente etapa del workflow (transcoding).
-
----
 
 ### 4.3.10 Transcode Workers
 
@@ -887,8 +821,6 @@ resources:
 
 Los workers se despliegan en un NodePool dedicado con taints/tolerations para evitar que saturen nodos donde corren la API o base de datos.
 
----
-
 ### 4.3.11 AI Enrichment Workers
 
 #### Responsabilidad
@@ -940,8 +872,6 @@ resources:
     memory: "32Gi"
     nvidia.com/gpu: 1
 ```
-
----
 
 ### 4.3.12 Distribution Workers
 
@@ -1055,7 +985,6 @@ resources:
     memory: "2Gi"
 ```
 
----
 
 ### 4.3.13 Escalabilidad Automática (KEDA + Temporal Scaler)
 
@@ -1119,8 +1048,6 @@ spec:
 2. **Optimización de costos:** Al vaciarse la cola, reduce la flota.
 3. **Escalado independiente:** Cada tipo de worker escala según su propia demanda.
 4. **No vendor lock-in:** KEDA + Temporal son open-source.
-
----
 
 ### 4.3.14 Gestor de Secretos (HashiCorp Vault)
 
@@ -1267,7 +1194,6 @@ secret/channels/{channel_type}/{channel_id}/
 
 Los workers obtienen credenciales en runtime con políticas de mínimo privilegio. Vault registra cada acceso para auditoría.
 
----
 
 # 6. Vista Física del Sistema
 
@@ -1399,7 +1325,6 @@ graph TB
 - **Workers Distribution:** 1 → 50 pods según demanda
 - **Ceph:** Agregar nodos para incrementar capacidad (lineal)
 
----
 
 # 7. Supuestos, Riesgos, No-Riesgos y Trade-offs
 
@@ -1478,47 +1403,34 @@ graph TB
    - **Por qué no es riesgo:** Se define idempotencia a nivel de operación (asset+canal+rendition) y reintentos controlados; el workflow puede detectar “ya publicado”.
 
 ## 7.4 Trade-offs (atributos de calidad)
-
-Los trade-offs enumerados a continuación se derivan de decisiones explícitas de la arquitectura (capítulos 4 y 5) y se expresan **siempre** como tensiones entre atributos de calidad.
-
 1. **Kubernetes self-managed (portabilidad) vs Simplicidad operativa:**
-
    - **Favorece:** Portabilidad/Interoperabilidad (evita lock-in), Escalabilidad (replicas/autoscaling), Disponibilidad (self-healing).
    - **Perjudica:** Operabilidad/Mantenibilidad (mayor complejidad, upgrades, debugging), Confiabilidad humana (riesgo de misconfig).
-2. **Ceph (durabilidad/escala) vs Operabilidad y latencia:**
-
+1. **Ceph (durabilidad/escala) vs Operabilidad y latencia:**
    - **Favorece:** Durabilidad/Confiabilidad (replicación/EC), Escalabilidad (agregar nodos), Disponibilidad (self-healing).
    - **Perjudica:** Operabilidad (cluster storage complejo), Performance (latencia mayor que storage local/NVMe para ciertos accesos), Costo (capacidad extra para resiliencia).
-3. **Tiering (SSD para hot, HDD+EC para cold) vs Complejidad y consistencia de performance:**
-
+1. **Tiering (SSD para hot, HDD+EC para cold) vs Complejidad y consistencia de performance:**
    - **Favorece:** Performance (proxies/delivery), Costo (masters en cold), Escalabilidad (crecimiento sostenible).
    - **Perjudica:** Operabilidad (políticas de pools/tiering), Predictibilidad (variabilidad de latencia según tier).
-4. **Presigned URLs (data plane directo) vs Control/auditoría centralizados:**
-
+1. **Presigned URLs (data plane directo) vs Control/auditoría centralizados:**
    - **Favorece:** Performance (zero-copy), Escalabilidad (API no streamea), Disponibilidad (menos carga en API/ingress).
    - **Perjudica:** Seguridad/Confiabilidad (si se configuran TTL/scopes mal), Observabilidad (trazabilidad de bytes transferidos fuera del API).
-5. **Elasticsearch como read model vs Consistencia estricta:**
-
+1. **Elasticsearch como read model vs Consistencia estricta:**
    - **Favorece:** Performance (búsquedas sub-segundo), Escalabilidad (sharding), Disponibilidad (búsqueda desacoplada de OLTP).
    - **Perjudica:** Consistencia/Confiabilidad (eventual consistency entre PG y ES), Operabilidad (reindex, mapping, capacity planning).
-6. **Temporal (workflows durables) vs Simplicidad de implementación:**
-
+1. **Temporal (workflows durables) vs Simplicidad de implementación:**
    - **Favorece:** Confiabilidad (reintentos, estado durable), Tolerancia a fallos (recuperación), Observabilidad (historial de eventos).
    - **Perjudica:** Complejidad (modelo de programación, determinismo), Operabilidad (componentes extra y tuning), Latencia (overhead de orquestación).
-7. **Autoscaling por colas (KEDA+Temporal) vs Estabilidad de recursos/costos:**
-
+1. **Autoscaling por colas (KEDA+Temporal) vs Estabilidad de recursos/costos:**
    - **Favorece:** Escalabilidad y Performance (absorbe picos), Disponibilidad (reduce backlogs).
    - **Perjudica:** Costo (picos de pods/GPUs), Confiabilidad operativa (más cambios dinámicos, necesidad de límites y quotas).
-8. **Seguridad fuerte (OIDC, Vault, TLS, TTL corto) vs Usabilidad y performance percibida:**
-
+1. **Seguridad fuerte (OIDC, Vault, TLS, TTL corto) vs Usabilidad y performance percibida:**
    - **Favorece:** Seguridad (menor superficie), Confiabilidad (rotación/least privilege).
    - **Perjudica:** Usabilidad (expiración/reautenticación), Performance (overhead TLS/validaciones) y Operabilidad (gestión de certificados/secretos).
-9. **Arquitectura poliglota (Go/Java/Python) vs Mantenibilidad/homogeneidad:**
-
+1. **Arquitectura poliglota (Go/Java/Python) vs Mantenibilidad/homogeneidad:**
    - **Favorece:** Performance (Go para API/workers), Interoperabilidad (SDKs/IA en Python), Adecuación al dominio (conectores donde convenga).
    - **Perjudica:** Mantenibilidad/Operabilidad (tooling múltiple, skills), Confiabilidad (más superficies de runtime/build).
-10. **Streaming directo desde S3 (delivery/proxies) vs Aislamiento del storage:**
-
+1. **Streaming directo desde S3 (delivery/proxies) vs Aislamiento del storage:**
 - **Favorece:** Performance (menos hops), Simplicidad de “serve” de contenido y menor carga en servicios de aplicación.
 - **Perjudica:** Disponibilidad (dependencia fuerte del storage para UX), Seguridad (exposición de endpoints si se endurece mal), Costo (egress/IO).
 
