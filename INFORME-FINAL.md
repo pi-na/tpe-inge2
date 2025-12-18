@@ -161,19 +161,9 @@ Dada la complejidad del sistema y la cantidad de componentes involucrados, resul
 
 Este enfoque permite garantizar la continuidad del servicio y reducir el impacto operativo de incidentes inevitables, como la indisponibilidad temporal de nodos de procesamiento, servicios de análisis de contenido o recursos de almacenamiento.
 
-**Cómo la arquitectura resuelve este atributo:**
-
-- Desacoplamiento mediante colas de mensajes: si un worker falla, las tareas permanecen en Temporal hasta que otro worker las procese.
-- Circuit breaker pattern en workflows: si un servicio externo está caído, el workflow puede pausarse o ejecutar compensaciones (Saga Pattern).
-- Ceph con self-healing automático: ante fallo de un OSD, el cluster redistribuye datos automáticamente.
-- Múltiples réplicas de cada servicio crítico con load balancing.
-
 ## 3.6 Seguridad
 
-**Prioridad: Alta**
-
 La seguridad es fundamental en una plataforma DAM destinada a un entorno corporativo de medios de comunicación, ya que el sistema administra activos que representan propiedad intelectual de alto valor, incluyendo material inédito o sensible previo a su publicación. Resulta crítico controlar de manera estricta quién puede acceder, descargar, modificar o distribuir cada activo, de modo de prevenir accesos no autorizados y fugas de información que puedan generar impactos económicos, legales o reputacionales.
-
 **Cómo la arquitectura resuelve este atributo:**
 
 - Autenticación centralizada con Keycloak (OIDC/OAuth2) y tokens JWT con TTL corto.
@@ -184,12 +174,8 @@ La seguridad es fundamental en una plataforma DAM destinada a un entorno corpora
 
 ## 3.7 Interoperabilidad
 
-**Prioridad: Media**
-
 La interoperabilidad es clave ya que la función principal del sistema es integrarse con distintos sistemas del ecosistema del grupo de medios. El DAM debe poder comunicarse con plataformas externas como sistemas de gestión de contenidos web, sistemas de emisión televisiva y servicios de publicación en redes sociales.
-
 Dado que la distribución de contenido es un proceso automatizado, resulta fundamental que el sistema exponga interfaces y servicios basados en estándares ampliamente utilizados, que permitan el intercambio de información y activos de manera fluida.
-
 **Cómo la arquitectura resuelve este atributo:**
 
 - API REST estándar para todas las operaciones del frontend y integraciones.
@@ -303,8 +289,7 @@ Se despliega un clúster de Kubernetes self-managed sobre las máquinas virtuale
 2. **Primitivas necesarias:** Provee las APIs requeridas para que KEDA funcione (HPA, métricas externas).
 3. **Portabilidad:** Un clúster Kubernetes puede moverse entre proveedores IaaS sin cambios en la aplicación.
 4. **Operación declarativa:** Manifiestos YAML versionables en Git para infraestructura como código.
-
-**Alternativa descartada:** Docker Swarm carece del ecosistema maduro de autoscalers y operadores necesarios para este nivel de complejidad. !VER CHEQUEAR
+   **Alternativa descartada:** Docker Swarm carece del ecosistema maduro de autoscalers y operadores necesarios para este nivel de complejidad. No ofrece una alternativa robusta como KEDA para la auto-escala.
 
 ### 4.2.3 Topología del Clúster Kubernetes
 
@@ -350,14 +335,11 @@ graph TB
 
 ### 4.2.4 Componentes de Infraestructura Desplegados
 
-!VER service mesh? monitoreo y logs?
-
 | Componente                    | Tecnología                       | Deployment                   |
 | ----------------------------- | --------------------------------- | ---------------------------- |
 | Orquestación de contenedores | Kubernetes (kubeadm o RKE2)       | Self-hosted                  |
 | Ingress Controller            | Traefik                           | Kubernetes DaemonSet         |
 | Autoscaling                   | KEDA + Temporal Scaler            | Kubernetes Operator          |
-| Service Mesh (opcional)       | Istio o Linkerd                   | Kubernetes                   |
 | Almacenamiento                | Ceph (Rook Operator)              | Kubernetes + nodos dedicados |
 | Base de datos                 | PostgreSQL (CrunchyData Operator) | Kubernetes StatefulSet       |
 | Motor de búsqueda            | Elasticsearch (ECK Operator)      | Kubernetes StatefulSet       |
@@ -386,7 +368,7 @@ El frontend es la interfaz de usuario principal del sistema DAM, proporcionando 
 
 #### Responsabilidades Específicas
 
-1. **Autenticación OIDC:** Implementa el flujo Authorization Code con PKCE para autenticación segura contra Keycloak, gestionando tokens de acceso y refresh. !VER investigar
+1. **Autenticación OIDC:** Implementa el flujo Authorization Code con PKCE (Proof Key for Code Exchange) para autenticación segura contra Keycloak, gestionando tokens de acceso y refresh. PKCE evita que, si alguien intercepta el código de autorización, pueda canjearlo por un token, ya que no tiene la clave criptográfica generada en el navegador.
 2. **Uploads masivos:** El frontend divide archivos grandes en chunks (partes de 5-100MB), sube hasta 6 partes en paralelo con reintentos individuales, y reporta progreso granular al usuario.
 3. **Exploración y búsqueda:** Interfaz de búsqueda con filtros facetados (tipo de activo, fecha, tags, estados), paginación y cache local con revalidación optimista.
 4. **Previsualización:** Reproduce proxies HLS/DASH directamente en el navegador sin descargar masters, utilizando URLs firmadas temporales.
@@ -427,15 +409,12 @@ spec:
 
 ### 4.3.2 API Gateway e Ingress (Traefik)
 
-#### Responsabilidad
-
 Traefik actúa como punto de entrada único al clúster Kubernetes, manejando el ruteo de tráfico HTTP/HTTPS hacia los servicios internos, la terminación TLS y políticas de seguridad a nivel de red.
 
 #### Funciones
 
 1. **Terminación TLS:** Todos los certificados SSL se gestionan en Traefik mediante Let's Encrypt (ACME) o certificados provistos, descargando esta responsabilidad de los servicios internos.
 2. **Routing por path:**
-
    - `/` → Frontend SPA
    - `/api/*` → DAM API (BFF)
    - `/auth/*` → Keycloak
@@ -455,26 +434,22 @@ Se selecciona Traefik sobre alternativas como NGINX Ingress o HAProxy por:
 
 ### 4.3.3 DAM API (Backend for Frontend)
 
-#### Responsabilidad
-
 El DAM API es un servicio Go que actúa como Backend for Frontend (BFF), exponiendo un contrato estable a la SPA y encapsulando la complejidad de interactuar con múltiples servicios backend. Implementa la lógica de dominio, autorización y composición de respuestas.
 
 #### Stack Tecnológico
 
-!VER DECIDIR TODO ESO
-
 - **Lenguaje:** Go 1.21+
-- **Framework HTTP:** Chi router o Gin (ligeros y de alto rendimiento)
+- **Framework HTTP:** Gin. Optamos por Gin sobre Chi ya que ofrece mas utilidades.
 - **Validación:** go-playground/validator
 - **Cliente PostgreSQL:** pgx
-- **Cliente Elasticsearch:** elastic/go-elasticsearch
+- **Cliente Elasticsearch:** elastic
 - **Cliente Temporal:** temporalio/sdk-go
 - **Cliente S3:** aws-sdk-go-v2 (compatible con Ceph RGW)
 
 #### Funciones Principales
 
 1. **Composición de respuestas:** Agrega datos de múltiples fuentes (PostgreSQL para metadatos, Elasticsearch para búsqueda, Temporal para estados de jobs) en respuestas unificadas.
-2. **Autorización a nivel dominio:** Valida permisos del usuario sobre recursos específicos (assets, proyectos, carpetas) según roles RBAC y políticas ABAC. !VER que es eso
+2. **Autorización a nivel dominio:** Valida permisos del usuario sobre recursos específicos (assets, proyectos, carpetas) según roles RBAC (Role Based Access Control) y políticas ABAC (Attribute Based Access Control).
 3. **Generación de Presigned URLs:** Emite URLs firmadas para uploads (PUT) y downloads (GET) directos a Ceph RGW, con tiempos de expiración configurables.
 4. **Disparo de workflows:** Inicia workflows Temporal para operaciones asíncronas (ingesta, transcodificación on-demand, distribución).
 5. **Consulta de estados:** Expone endpoints para consultar el progreso y resultado de jobs en ejecución.
@@ -566,7 +541,7 @@ PostgreSQL actúa como la fuente canónica (source of truth) para los metadatos 
 2. **Renditions:** Referencias a las versiones derivadas de cada asset (profile, s3_key, status).
 3. **Metadatos técnicos:** Información extraída por ffprobe/exiftool (duración, resolución, codec, bitrate).
 4. **Distribuciones:** Registro de publicaciones a canales externos (asset_id, channel, external_id, status).
-5. **Usuarios y permisos:** Tablas auxiliares para RBAC si no se delega completamente a Keycloak. !VER RBAC?
+5. **Usuarios y permisos:** Tablas auxiliares para RBAC si no se delega completamente a Keycloak.
 
 #### Modelo de Datos Principal
 
@@ -621,9 +596,8 @@ CREATE INDEX idx_distributions_asset ON asset_distributions(asset_id);
 
 #### Deployment
 
-!VER INGESTIGAR
-
-PostgreSQL se despliega mediante el operador CrunchyData (PGO) que gestiona:
+Correr bases de datos en Kubernetes "a mano" (con StatefulSets simples) agrega complejidad y puede llevar a riesgos inesperados. Implica, por ejemplo, manejar el failover, backups, evitar corrupción.
+Elegimos desplegar PGSQL mediante el operador CrunchyData (PGO) que gestiona:
 
 - Cluster con réplicas de streaming replication
 - Backups automáticos a object storage
@@ -808,34 +782,6 @@ Se definen Task Queues específicas para cada tipo de trabajo, permitiendo escal
 | `q-ai-enrich`             | Python/Go   | GPU Bound                     | Inferencia de modelos (Whisper, YOLO, OCR)       |
 | `q-distribution`          | Java        | Network Bound                 | Publicación a canales externos                  |
 
-#### Diagrama de Orquestación
-
-!VER MAL
-
-```mermaid
-graph TD
-    Client[API Gateway / Upload Service] -->|StartWorkflow| T_Server[Temporal Server Cluster]
-    T_Server -->|Task Schedule| Q_Ingest[Cola: q-ingest]
-    T_Server -->|Task Schedule| Q_Trans[Cola: q-transcode]
-    T_Server -->|Task Schedule| Q_TransI[Cola: q-transcode-interactive]
-    T_Server -->|Task Schedule| Q_AI[Cola: q-ai-enrich]
-    T_Server -->|Task Schedule| Q_Dist[Cola: q-distribution]
-  
-    subgraph K8s Cluster
-        W_Ingest[Pod: Ingest Worker] -- Poll --> Q_Ingest
-        W_Trans[Pod: Transcode Worker Batch] -- Poll --> Q_Trans
-        W_TransI[Pod: Transcode Worker Interactivo] -- Poll --> Q_TransI
-        W_AI[Pod: AI Worker] -- Poll --> Q_AI
-        W_Dist[Pod: Distribution Worker] -- Poll --> Q_Dist
-    end
-  
-    W_Ingest -->|Activity Result| T_Server
-    W_Trans -->|Activity Result| T_Server
-    W_TransI -->|Activity Result| T_Server
-    W_AI -->|Activity Result| T_Server
-    W_Dist -->|Activity Result| T_Server
-```
-
 #### Custom Search Attributes
 
 Se definen atributos personalizados para búsquedas relevantes al dominio:
@@ -896,11 +842,8 @@ Los Transcode Workers son el motor de cómputo intensivo de la plataforma. Su fu
 
 Opera bajo un modelo de "polling" sobre la Task Queue de Temporal:
 
-!VER de donde saca el voluem efimero de alta velocidad
-
-1. **Aprovisionamiento de datos:** El worker descarga el archivo fuente desde Ceph a un volumen efímero de alta velocidad (EmptyDir/SSD) para acceso random rápido (seekable) necesario para análisis y codificación multipasada.
+1. **Aprovisionamiento de datos:** El worker descarga el archivo fuente desde Ceph a un volumen efímero de alta velocidad (EmptyDir/SSD) para acceso random rápido (seekable) necesario para análisis y codificación multipasada. Se utiliza un volumen `emptyDir` mapeado al almacenamiento local del nodo (Instance Store NVMe) para garantizar el máximo I/O sin latencia de red durante la transcodificación
 2. **Ejecución controlada:** El código Go construye el comando FFmpeg/libvips con los parámetros del perfil.
-
    - **Heartbeating:** Durante la ejecución (que puede durar horas para largometrajes), el wrapper lee la salida de FFmpeg, calcula el porcentaje completado y envía heartbeats a Temporal. Si el pod muere, Temporal detecta la falla y reprograma la tarea.
    - **Cancelación:** El worker escucha el contexto de cancelación de Temporal. Si el usuario cancela desde la UI, el wrapper mata el proceso FFmpeg.
 3. **Persistencia y limpieza:** El archivo resultante se sube a Ceph mediante Multipart Upload. Al finalizar, se eliminan los archivos temporales.
@@ -921,7 +864,6 @@ Opera bajo un modelo de "polling" sobre la Task Queue de Temporal:
 #### Separación Batch vs. Interactivo
 
 La cola `q-transcode` está optimizada para throughput (ingesta continua, escalado agresivo). La cola `q-transcode-interactive` está optimizada para latencia baja en requests de usuarios (exports on-demand).
-
 **Políticas diferenciadas:**
 
 | Aspecto         | q-transcode (batch) | q-transcode-interactive |
@@ -1468,7 +1410,117 @@ graph TB
 3. **Volumen inicial conocido:** Se asume un volumen inicial de ~1 millón de activos con crecimiento de ~100,000 activos/mes, que guía el sizing inicial de infraestructura.
 4. **Formatos de entrada estándar:** Los archivos ingresados son formatos multimedia estándar (MP4, MOV, WAV, MP3, JPEG, PNG, TIFF, ETC). Formatos propietarios o exóticos pueden requerir extensiones.
 5. **Equipo de operaciones capacitado:** Se asume un equipo de operaciones con conocimientos de Kubernetes, Ceph y las tecnologías seleccionadas para operación y troubleshooting.
+6. **Compatibilidad S3 de extremo a extremo:** Se asume que la aplicación y los clientes (frontend/workers) se integran exclusivamente vía API S3 (Ceph RGW) y no dependen de particularidades propietarias del proveedor IaaS.
+7. **Canales externos con SLA variable:** Se asume que las APIs/servicios destino (YouTube, Facebook, CMS, playout) pueden degradarse o aplicar rate limits sin aviso; el sistema debe tolerarlo con reintentos/backoff y colas.
+8. **Políticas corporativas de identidad disponibles:** Se asume disponibilidad de un IdP (Keycloak) con definición de roles/grupos y políticas RBAC/ABAC acordadas por el negocio (quién puede ver/descargar/distribuir).
+9. **Ventanas de mantenimiento planificables:** Se asume que es posible coordinar ventanas para upgrades mayores (Kubernetes, Ceph, Elastic, Temporal) y rotaciones de certificados/secretos sin afectar el negocio de forma crítica.
+10. **Estrategia de backup y DR definida:** Se asume que la organización define RPO/RTO (por ejemplo, RPO horas y RTO horas) y provee infraestructura/procedimientos para backups y recuperación ante desastres (DR) consistentes con esos objetivos.
 
+## 7.2 Riesgos
+
+1. **Complejidad operativa de plataforma (Kubernetes + Ceph + Temporal + Elastic):**
+
+   - **Atributos impactados:** Disponibilidad, Confiabilidad, Operabilidad.
+   - **Descripción:** La cantidad de componentes críticos y su operación self-managed incrementa la probabilidad de errores de configuración, upgrades fallidos o incidentes difíciles de diagnosticar.
+   - **Mitigación:** Uso de operadores maduros (Rook, ECK, Crunchy), IaC versionado, ambientes de staging, runbooks, SLOs/alerting (Prometheus/Grafana) y políticas de cambio (canary/blue-green cuando aplique).
+2. **Riesgo de pérdida/corrupción de datos por mala configuración de Ceph o fallas correlacionadas:**
+
+   - **Atributos impactados:** Durabilidad/Confiabilidad, Disponibilidad.
+   - **Descripción:** Un sizing incorrecto (CRUSH, replication/EC, domains) o fallas de energía/rack pueden generar pérdida de disponibilidad o, en el peor caso, pérdida de objetos.
+   - **Mitigación:** Failure domains por rack/AZ, políticas de replicación/EC adecuadas por bucket/pool, scrubbing, pruebas periódicas de restore, monitoreo de health/PGs, y capacidad de “headroom” para rebalanceos.
+3. **Inconsistencia temporal entre PostgreSQL (source of truth) y Elasticsearch (read model):**
+
+   - **Atributos impactados:** Consistencia/Confiabilidad vs Performance/Disponibilidad.
+   - **Descripción:** Retrasos o fallas en la actualización del índice pueden causar que la búsqueda muestre resultados desactualizados, duplicados o faltantes.
+   - **Mitigación:** Indexación idempotente, colas/workflows con reintentos, mecanismos de “reindex” y reconciliación periódica, y UX que indique “estado de indexación” cuando sea relevante.
+4. **Bottleneck de egress/red por streaming directo desde Object Storage (proxies/delivery):**
+
+   - **Atributos impactados:** Performance, Disponibilidad, Costo.
+   - **Descripción:** Servir proxies/entregas directamente desde Ceph RGW puede saturar red o egress, degradando la experiencia editorial o la distribución.
+   - **Mitigación:** Bucket/pool “hot” en SSD, caching HTTP (CDN o reverse-proxy cache para `dam-delivery`), límites de concurrencia, QoS y escalado horizontal de RGW.
+5. **Costos y disponibilidad de GPUs (y su scheduling) para IA:**
+
+   - **Atributos impactados:** Costo, Performance, Escalabilidad.
+   - **Descripción:** La IA puede volverse el mayor consumidor de recursos; GPUs pueden ser escasas o caras y afectar SLAs de enriquecimiento.
+   - **Mitigación:** Enriquecimiento asíncrono con prioridades (editorial vs batch), modelos optimizados (quantization), fallback a CPU para baja prioridad y autoscaling por cola (KEDA/Temporal).
+6. **Riesgo de exposición accidental por Presigned URLs mal configuradas:**
+
+   - **Atributos impactados:** Seguridad, Confiabilidad.
+   - **Descripción:** TTL excesivos, scopes demasiado amplios o logs que filtren URLs podrían habilitar accesos indebidos a activos.
+   - **Mitigación:** TTL corto, scopes mínimos (bucket/key exacto), políticas IAM/RGW, rotación de credenciales, no loguear URLs completas, y auditoría centralizada.
+7. **Rate limiting / cambios de contrato en canales externos:**
+
+   - **Atributos impactados:** Disponibilidad, Interoperabilidad, Confiabilidad.
+   - **Descripción:** APIs externas pueden cambiar, imponer cuotas o presentar errores intermitentes, afectando la distribución.
+   - **Mitigación:** Conectores desacoplados, reintentos con backoff y jitter, circuit breakers, colas por canal, y observabilidad por “estado de publicación” para reintentos manuales/automáticos.
+8. **Riesgo de degradación por tareas largas (transcoding) si no se monitorea heartbeating/timeouts:**
+
+   - **Atributos impactados:** Confiabilidad, Performance.
+   - **Descripción:** Un worker colgado o una tarea mal instrumentada puede retener recursos, reintentar en bucle o “inflar” colas.
+   - **Mitigación:** Heartbeats, timeouts por actividad, límites de reintentos, DLQ/queues separadas, y métricas por workflow/actividad.
+
+## 7.3 No-Riesgos
+
+1. **El API como cuello de botella para archivos grandes (upload/download):**
+
+   - **Por qué no es riesgo:** Las transferencias van directo a Ceph RGW mediante Presigned URLs, manteniendo el API en el plano de control (metadatos) y no en el plano de datos.
+2. **Pérdida de progreso de procesos largos ante reinicios de pods/nodos:**
+
+   - **Por qué no es riesgo:** Temporal persiste el estado de workflows y permite re-ejecución determinista/reintentos; con heartbeating se detectan fallas y se reprograman tareas.
+3. **Vendor lock-in por servicios gestionados del cloud:**
+
+   - **Por qué no es riesgo:** La arquitectura se apoya en IaaS + componentes self-hosted (K8s/Ceph/Temporal/Elastic/Keycloak/Vault) y protocolos estándar (S3, OIDC, HTTP/gRPC).
+4. **Escalado reactivo tardío basado solo en CPU/RAM:**
+
+   - **Por qué no es riesgo:** Se usa escalado event-driven por profundidad de cola (KEDA + Temporal Scaler), que responde a demanda real de trabajos y reduce “lag” de autoscaling tradicional.
+5. **Duplicación de publicaciones por reintentos en distribución:**
+
+   - **Por qué no es riesgo:** Se define idempotencia a nivel de operación (asset+canal+rendition) y reintentos controlados; el workflow puede detectar “ya publicado”.
+
+## 7.4 Trade-offs (atributos de calidad)
+
+Los trade-offs enumerados a continuación se derivan de decisiones explícitas de la arquitectura (capítulos 4 y 5) y se expresan **siempre** como tensiones entre atributos de calidad.
+
+1. **Kubernetes self-managed (portabilidad) vs Simplicidad operativa:**
+
+   - **Favorece:** Portabilidad/Interoperabilidad (evita lock-in), Escalabilidad (replicas/autoscaling), Disponibilidad (self-healing).
+   - **Perjudica:** Operabilidad/Mantenibilidad (mayor complejidad, upgrades, debugging), Confiabilidad humana (riesgo de misconfig).
+2. **Ceph (durabilidad/escala) vs Operabilidad y latencia:**
+
+   - **Favorece:** Durabilidad/Confiabilidad (replicación/EC), Escalabilidad (agregar nodos), Disponibilidad (self-healing).
+   - **Perjudica:** Operabilidad (cluster storage complejo), Performance (latencia mayor que storage local/NVMe para ciertos accesos), Costo (capacidad extra para resiliencia).
+3. **Tiering (SSD para hot, HDD+EC para cold) vs Complejidad y consistencia de performance:**
+
+   - **Favorece:** Performance (proxies/delivery), Costo (masters en cold), Escalabilidad (crecimiento sostenible).
+   - **Perjudica:** Operabilidad (políticas de pools/tiering), Predictibilidad (variabilidad de latencia según tier).
+4. **Presigned URLs (data plane directo) vs Control/auditoría centralizados:**
+
+   - **Favorece:** Performance (zero-copy), Escalabilidad (API no streamea), Disponibilidad (menos carga en API/ingress).
+   - **Perjudica:** Seguridad/Confiabilidad (si se configuran TTL/scopes mal), Observabilidad (trazabilidad de bytes transferidos fuera del API).
+5. **Elasticsearch como read model vs Consistencia estricta:**
+
+   - **Favorece:** Performance (búsquedas sub-segundo), Escalabilidad (sharding), Disponibilidad (búsqueda desacoplada de OLTP).
+   - **Perjudica:** Consistencia/Confiabilidad (eventual consistency entre PG y ES), Operabilidad (reindex, mapping, capacity planning).
+6. **Temporal (workflows durables) vs Simplicidad de implementación:**
+
+   - **Favorece:** Confiabilidad (reintentos, estado durable), Tolerancia a fallos (recuperación), Observabilidad (historial de eventos).
+   - **Perjudica:** Complejidad (modelo de programación, determinismo), Operabilidad (componentes extra y tuning), Latencia (overhead de orquestación).
+7. **Autoscaling por colas (KEDA+Temporal) vs Estabilidad de recursos/costos:**
+
+   - **Favorece:** Escalabilidad y Performance (absorbe picos), Disponibilidad (reduce backlogs).
+   - **Perjudica:** Costo (picos de pods/GPUs), Confiabilidad operativa (más cambios dinámicos, necesidad de límites y quotas).
+8. **Seguridad fuerte (OIDC, Vault, TLS, TTL corto) vs Usabilidad y performance percibida:**
+
+   - **Favorece:** Seguridad (menor superficie), Confiabilidad (rotación/least privilege).
+   - **Perjudica:** Usabilidad (expiración/reautenticación), Performance (overhead TLS/validaciones) y Operabilidad (gestión de certificados/secretos).
+9. **Arquitectura poliglota (Go/Java/Python) vs Mantenibilidad/homogeneidad:**
+
+   - **Favorece:** Performance (Go para API/workers), Interoperabilidad (SDKs/IA en Python), Adecuación al dominio (conectores donde convenga).
+   - **Perjudica:** Mantenibilidad/Operabilidad (tooling múltiple, skills), Confiabilidad (más superficies de runtime/build).
+10. **Streaming directo desde S3 (delivery/proxies) vs Aislamiento del storage:**
+
+- **Favorece:** Performance (menos hops), Simplicidad de “serve” de contenido y menor carga en servicios de aplicación.
+- **Perjudica:** Disponibilidad (dependencia fuerte del storage para UX), Seguridad (exposición de endpoints si se endurece mal), Costo (egress/IO).
 
 # 8. Referencias
 
@@ -1510,7 +1562,3 @@ graph TB
 ## Autoscaling
 
 - **KEDA Temporal Scaler:** https://keda.sh/docs/2.18/scalers/temporal/
-
----
-
-*Documento generado para la materia 72.40 Ingeniería de Software - FIUBA*
