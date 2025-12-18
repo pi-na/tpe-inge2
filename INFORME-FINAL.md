@@ -894,7 +894,9 @@ Los Transcode Workers son el motor de cómputo intensivo de la plataforma. Su fu
 
 #### Arquitectura y Flujo de Ejecución
 
-A diferencia de un servicio web tradicional, el Transcode Worker opera bajo un modelo de "polling" sobre la Task Queue de Temporal:
+Opera bajo un modelo de "polling" sobre la Task Queue de Temporal:
+
+!VER de donde saca el voluem efimero de alta velocidad
 
 1. **Aprovisionamiento de datos:** El worker descarga el archivo fuente desde Ceph a un volumen efímero de alta velocidad (EmptyDir/SSD) para acceso random rápido (seekable) necesario para análisis y codificación multipasada.
 2. **Ejecución controlada:** El código Go construye el comando FFmpeg/libvips con los parámetros del perfil.
@@ -955,9 +957,8 @@ Los AI Enrichment Workers ejecutan inferencia de modelos de inteligencia artific
 
 - **Lenguaje:** Python o Go (según modelo)
 - **Speech-to-Text:** Whisper (faster-whisper optimizado sobre CTranslate2)
-- **OCR:** Tesseract, PaddleOCR o EasyOCR según idioma/calidad
+- **OCR:** Tesseract
 - **Visión:** YOLO/Ultralytics para detección de objetos
-- **NLP:** spaCy para NER/keywords/tópicos
 - **Task Queue:** `q-ai-enrich`
 
 #### Perfil de Carga
@@ -982,7 +983,7 @@ Para cumplir con el requerimiento de no vendor lock-in, todos los modelos se eje
 | faster-whisper      | Transcripción audio/video | 8GB VRAM   |
 | Tesseract/PaddleOCR | OCR de imágenes y frames  | CPU o GPU  |
 | YOLOv8              | Detección de objetos      | 4GB VRAM   |
-| spaCy               | NER y keywords             | CPU        |
+|                     |                            |            |
 
 #### Configuración Kubernetes
 
@@ -1183,9 +1184,7 @@ spec:
 
 #### Responsabilidad
 
-HashiCorp Vault gestiona de forma centralizada y segura todas las credenciales sensibles del sistema: tokens de APIs de canales externos, certificados, credenciales de bases de datos y claves de cifrado.
-
-#### Justificación
+HashiCorp Vault gestiona de forma centralizada y segura todas las credenciales sensibles del sistema: tokens de APIs de canales externos, certificados, credenciales de bases de datos y claves de cifrado. Vault se despliega en modo HA con backend de almacenamiento en Consul o PostgreSQL. Los workers obtienen credenciales mediante Service Account tokens que Vault valida contra la API de Kubernetes (Kubernetes Auth Method).
 
 Se selecciona Vault sobre Kubernetes Secrets nativos por:
 
@@ -1195,39 +1194,9 @@ Se selecciona Vault sobre Kubernetes Secrets nativos por:
 - **Políticas granulares:** Control de acceso fino por path y operación.
 - **Self-hosted:** Cumple con requerimiento de no vendor lock-in.
 
-#### Deployment
-
-Vault se despliega en modo HA con backend de almacenamiento en Consul o PostgreSQL:
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: vault
-spec:
-  replicas: 3
-  template:
-    spec:
-      containers:
-      - name: vault
-        image: hashicorp/vault:1.15
-        args: ["server"]
-        env:
-        - name: VAULT_CLUSTER_ADDR
-          value: "https://$(POD_NAME).vault:8201"
-```
-
-#### Integración con Kubernetes
-
-Los workers obtienen credenciales mediante Service Account tokens que Vault valida contra la API de Kubernetes (Kubernetes Auth Method).
-
----
-
 # 5. Resolución de Puntos Críticos
 
 ## 5.1 Ingesta Masiva de Archivos Grandes
-
-### Problema
 
 Los archivos de video pueden pesar decenas de gigabytes. Subir archivos de este tamaño a través del API tradicional (body de HTTP request) sería inviable por:
 
@@ -1279,8 +1248,6 @@ sequenceDiagram
 
 ## 5.2 Transcodificación de Larga Duración
 
-### Problema
-
 Procesar un largometraje 4K puede tardar horas. Durante ese tiempo:
 
 - El nodo de Kubernetes puede morir (Spot Instance reclamation, fallo de hardware)
@@ -1295,34 +1262,7 @@ El worker de transcodificación implementa heartbeating para mantener a Temporal
 2. **Detección de fallos:** Si el heartbeat se detiene (pod muere), Temporal detecta el timeout y reprograma la tarea en otro worker.
 3. **Cancelación:** El worker escucha `ctx.Done()` y mata el proceso FFmpeg si el usuario cancela.
 
-```go
-// Pseudocódigo del wrapper de transcodificación
-func transcodeActivity(ctx context.Context, input TranscodeInput) error {
-    cmd := exec.Command("ffmpeg", buildArgs(input)...)
-    stdout, _ := cmd.StdoutPipe()
-    cmd.Start()
-  
-    go func() {
-        scanner := bufio.NewScanner(stdout)
-        for scanner.Scan() {
-            progress := parseProgress(scanner.Text())
-            activity.RecordHeartbeat(ctx, progress)
-        }
-    }()
-  
-    select {
-    case <-ctx.Done():
-        cmd.Process.Kill()
-        return ctx.Err()
-    case err := <-waitCmd(cmd):
-        return err
-    }
-}
-```
-
 ## 5.3 Distribución a Canales Externos Inestables
-
-### Problema
 
 Las APIs de canales externos (YouTube, Facebook) son inestables:
 
@@ -1330,8 +1270,7 @@ Las APIs de canales externos (YouTube, Facebook) son inestables:
 - Timeouts
 - Caídas temporales
 - Errores transitorios
-
-Además, no se pueden generar archivos temporales locales porque los pods son efímeros.
+  Además, no se pueden generar archivos temporales locales porque los pods son efímeros.
 
 ### Solución: Reintentos Inteligentes + Streaming Directo
 
@@ -1349,14 +1288,10 @@ RetryOptions retryOptions = RetryOptions.newBuilder()
 
 - **Errores transitorios (5xx, timeout, rate limit):** Reintentar con backoff exponencial.
 - **Errores permanentes (credenciales inválidas, formato no soportado):** Fallar inmediatamente.
-
-**Streaming directo desde S3:**
-
-El worker abre un stream desde S3 y lo conecta directamente al stream de upload del canal, sin escribir a disco local. Si el pod muere, Temporal reintenta y el nuevo worker reinicia el stream desde S3.
+  **Streaming directo desde S3:**
+  El worker abre un stream desde S3 y lo conecta directamente al stream de upload del canal, sin escribir a disco local. Si el pod muere, Temporal reintenta y el nuevo worker reinicia el stream desde S3.
 
 ## 5.4 Búsqueda sobre Millones de Assets
-
-### Problema
 
 Con millones de activos, las búsquedas sobre PostgreSQL degradan significativamente el rendimiento.
 
@@ -1370,8 +1305,6 @@ Se mantiene PostgreSQL como fuente canónica para transacciones, pero se replica
 - **Versionado de índices:** Permite evolucionar mappings sin downtime mediante reindex.
 
 ## 5.5 Gestión de Secretos de Canales Externos
-
-### Problema
 
 Los Distribution Workers necesitan credenciales de múltiples canales externos, que deben:
 
@@ -1533,60 +1466,9 @@ graph TB
 1. **Conectividad de red estable:** Se asume que la red interna del datacenter/cloud tiene latencia baja (<5ms) y ancho de banda suficiente (10Gbps) para transferencias entre workers y storage.
 2. **Disponibilidad de GPUs:** Para los workers de IA, se asume acceso a instancias con GPUs NVIDIA (CUDA) para inferencia eficiente de modelos.
 3. **Volumen inicial conocido:** Se asume un volumen inicial de ~1 millón de activos con crecimiento de ~100,000 activos/mes, que guía el sizing inicial de infraestructura.
-4. **Formatos de entrada estándar:** Los archivos ingresados son formatos multimedia estándar (MP4, MOV, WAV, MP3, JPEG, PNG, TIFF). Formatos propietarios o exóticos pueden requerir extensiones.
+4. **Formatos de entrada estándar:** Los archivos ingresados son formatos multimedia estándar (MP4, MOV, WAV, MP3, JPEG, PNG, TIFF, ETC). Formatos propietarios o exóticos pueden requerir extensiones.
 5. **Equipo de operaciones capacitado:** Se asume un equipo de operaciones con conocimientos de Kubernetes, Ceph y las tecnologías seleccionadas para operación y troubleshooting.
 
-## 7.2 Riesgos
-
-| Riesgo                                                       | Probabilidad | Impacto  | Mitigación                                                                                                                               |
-| ------------------------------------------------------------ | ------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **Complejidad operativa de Ceph**                      | Media        | Alto     | Documentación exhaustiva, runbooks, monitoreo proactivo. Considerar soporte comercial de Ceph/Red Hat si el equipo no tiene experiencia. |
-| **Curva de aprendizaje de Temporal**                   | Media        | Medio    | Capacitación del equipo, desarrollo incremental con workflows simples primero.                                                           |
-| **Latencia de enriquecimiento IA**                     | Media        | Medio    | Priorización de workflows (batch vs. interactivo), escalado de workers GPU.                                                              |
-| **APIs externas inestables**                           | Alta         | Medio    | Reintentos con backoff, circuit breakers, notificaciones a operadores.                                                                    |
-| **Crecimiento de storage más rápido de lo esperado** | Media        | Alto     | Monitoreo de capacidad, lifecycle policies agresivas, evaluación periódica de retention.                                                |
-| **Falla de múltiples nodos Ceph**                     | Baja         | Crítico | Erasure coding 4+2 tolera 2 fallos. Monitoreo de salud de OSDs, reemplazo preventivo.                                                     |
-
-## 7.3 No-Riesgos
-
-1. **Vendor lock-in:** La arquitectura utiliza exclusivamente software open-source desplegable sobre cualquier IaaS. No hay dependencia de servicios gestionados del proveedor.
-2. **Pérdida de datos en storage:** Ceph con erasure coding y replicación proporciona durabilidad de datos equivalente o superior a servicios cloud gestionados.
-3. **Pérdida de estado en workflows:** Temporal persiste todo el historial de eventos. Cualquier fallo se recupera automáticamente.
-4. **Escalabilidad de búsqueda:** Elasticsearch escala horizontalmente con sharding. El diseño de índices soporta millones de documentos.
-
-## 7.4 Trade-offs
-
-### Complejidad vs. Flexibilidad
-
-**Trade-off:** La arquitectura es significativamente más compleja que usar servicios gestionados (AWS S3 + Lambda + SQS + CloudSearch), pero proporciona control total y evita vendor lock-in.
-
-**Justificación:** El requerimiento explícito de no vendor lock-in hace que esta complejidad sea necesaria. El grupo de medios puede migrar entre proveedores o a datacenter propio sin reescribir la aplicación.
-
-### Costo de Storage vs. Performance
-
-**Trade-off:** El tiering de storage (HDD para masters, SSD para proxies) optimiza costos pero introduce complejidad operativa y potencial latencia en acceso a masters.
-
-**Justificación:** Los masters se acceden raramente (solo para re-transcoding o recuperación). La experiencia editorial cotidiana usa proxies en hot storage, manteniendo la performance percibida.
-
-### Tamaño de Workers vs. Eficiencia
-
-**Trade-off:** Workers especializados (transcode separado de IA separado de distribución) aumentan la cantidad de pods pero permiten escalado granular.
-
-**Justificación:** Escalar pods de transcode (CPU-intensive) junto con pods de distribución (network-intensive) desperdiciaría recursos. La especialización permite asignar exactamente los recursos necesarios.
-
-### Elasticsearch Unificado vs. Separación
-
-**Trade-off:** Usar un único cluster de Elasticsearch para búsqueda de assets Y visibility de Temporal simplifica operación pero crea un punto de acoplamiento.
-
-**Justificación:** Ambos casos de uso requieren capacidades similares (búsqueda full-text, escalado horizontal). Un único cluster reduce overhead operativo y el acoplamiento es aceptable dado que ambos son parte del mismo sistema.
-
-### Streaming Directo vs. Archivos Temporales
-
-**Trade-off:** El streaming directo desde S3 hacia canales externos evita archivos temporales pero impide usar bibliotecas que requieran acceso aleatorio al archivo.
-
-**Justificación:** Los conectores de canales (YouTube API, Graph API) soportan streaming. Para casos excepcionales que requieran acceso aleatorio, se puede implementar un fallback con PersistentVolume, pero esto no es necesario para los conectores principales.
-
----
 
 # 8. Referencias
 
