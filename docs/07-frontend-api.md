@@ -20,7 +20,7 @@
 ### 7.2.2. Stack concreto
 
 - **Framework**: React + TypeScript.
-  **investigar: TanStack Query**
+  **!investigar: TanStack Query**
 - **Estado asíncrono / cache de server-state**: TanStack Query (`@tanstack/react-query`).
 - **Upload resiliente**: Uppy con plugin `@uppy/aws-s3` (soporta multipart según tamaño y reintentos).
 - **Reproducción**:
@@ -39,6 +39,8 @@
 
 ### 7.3.1. API Gateway / Ingress
 
+**!investigar: que es ingress controller, traefik. como operan sobre kubernetes.**
+
 - **Tecnología**: Traefik (Ingress Controller) sobre Kubernetes.
 - **Funciones**:
   - **Terminación TLS**.
@@ -47,6 +49,8 @@
   - **Observabilidad**: métricas y logs HTTP.
 
 ### 7.3.2. BFF (Backend for Frontend)
+
+**!investigar en que consiste un bff con go**
 
 Se implementa un **BFF lógico** (DAM API) que expone un contrato estable a la SPA y encapsula:
 
@@ -58,6 +62,8 @@ Se implementa un **BFF lógico** (DAM API) que expone un contrato estable a la S
 **Lenguaje**: Go (consistencia con workers y ecosistema de I/O/concurrencia).
 
 ### 7.3.3. Servicios backend (responsabilidades mínimas)
+
+**!investigar: que es keycloak y como se usa aqui.**
 
 - **Auth/IdP**: Keycloak (self‑hosted) vía OIDC/OAuth2.
 - **Metadata Service** (Go + PostgreSQL): fuente canónica del ciclo de vida y metadatos.
